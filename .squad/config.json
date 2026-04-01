@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "repo": "docs-heavy",
+  "members": [
+    "architect",
+    "developer",
+    "reviewer"
+  ]
+}

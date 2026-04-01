@@ -1,0 +1,11 @@
+{
+  "name": "experiment-docs-heavy",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "echo \"Build docs OK\"",
+    "test": "echo \"Docs tests OK\"",
+    "lint": "echo \"Lint OK\"",
+    "dev": "echo \"Dev server would start here\""
+  }
+}
