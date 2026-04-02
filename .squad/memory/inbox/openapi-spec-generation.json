@@ -1,0 +1,39 @@
+{
+  "session": "openapi-spec-generation",
+  "timestamp": "2026-04-02T16:12:00Z",
+  "issue": "Add OpenAPI spec generation from route definitions",
+  "observations": [
+    {
+      "type": "architecture",
+      "detail": "OpenAPI generator lives in src/openapi/ with three modules: types.ts (shared interfaces), parser.ts (JSDoc annotation extraction and route file scanning), generator.ts (OpenAPI 3.0.3 spec construction and validation). Public API in index.ts exports buildOpenAPISpec() convenience function."
+    },
+    {
+      "type": "pattern",
+      "detail": "Route definitions in src/routes/ use @openapi JSDoc annotations with @summary, @description, @param, @response, and @body tags. Routes export typed RouteDefinition objects that pair with their JSDoc blocks for static analysis without runtime execution."
+    },
+    {
+      "type": "convention",
+      "detail": "JSDoc param format is '@param {type} name - Description (location)' where location is path/query/header. Response format is '@response statusCode { Schema } - Description'. Body format is '@body { Schema } - Description'. Path params use Express :id style which is auto-converted to OpenAPI {id} style."
+    },
+    {
+      "type": "decision",
+      "detail": "Route definitions are standalone typed objects rather than Express router calls. This allows the parser to extract metadata via regex on source text without executing the code or importing route handlers, supporting the 'no build step' requirement."
+    },
+    {
+      "type": "test-coverage",
+      "detail": "94 tests cover: JSDoc block extraction, @openapi tag detection, individual tag parsers (summary, description, param, response, body), full annotation parsing, route source parsing, Express-to-OpenAPI path conversion, operation building, spec generation with schemas, spec validation, and end-to-end integration from route files to complete spec."
+    },
+    {
+      "type": "infrastructure",
+      "detail": "PR #2 opened: feature/openapi-spec-generation -> master at https://github.com/tamirdresher/docs-heavy/pull/2. All 94 tests pass. Package.json test script updated to run openapi tests. Branch pushed via gh CLI with tamirdresher account."
+    },
+    {
+      "type": "gotcha",
+      "detail": "The master branch has no src/ directory (only exists on feature branches). The package.json test script on master is 'echo Docs tests OK'. Each feature branch updates it to run its own tests. When merging, test scripts need reconciliation to run all test files."
+    },
+    {
+      "type": "gotcha",
+      "detail": "gh pr edit fails with 'Projects (classic) is being deprecated' GraphQL error. Use 'gh api repos/{owner}/{repo}/pulls/{id} -X PATCH --input file.json' as workaround to update PR descriptions."
+    }
+  ]
+}
