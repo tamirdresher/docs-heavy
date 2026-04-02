@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-04-02T06:11:29.730Z",
+  "observations": [
+    {
+      "type": "decision",
+      "content": "Used named function declarations (onMessage, onClose, onError) instead of anonymous arrow functions for WebSocket event listeners. This is required because removeListener needs a reference to the exact function that was added. Anonymous functions cannot be removed."
+    },
+    {
+      "type": "decision",
+      "content": "Tracked channel subscription handlers in a Map<string, handler> on each Client object so that channel EventEmitter listeners can be individually removed on disconnect, preventing the second source of the memory leak."
+    },
+    {
+      "type": "learning",
+      "content": "The memory leak had two sources: (1) WebSocket event listeners (message/close/error) not being removed on disconnect, and (2) channel EventEmitter listeners accumulating as clients subscribed to channels. Both needed cleanup in the disconnect handler."
+    },
+    {
+      "type": "learning",
+      "content": "When a client re-subscribes to the same channel, the old handler must be removed first to prevent duplicate listeners. The subscribe handler now checks for and removes existing handlers before adding new ones."
+    },
+    {
+      "type": "context",
+      "content": "The test suite uses a lightweight MockWebSocket class (no real ws dependency needed) that tracks listeners in a Map<string, Set<Function>>. Tests validate cleanup across 100 connect/disconnect cycles to catch accumulation bugs."
+    },
+    {
+      "type": "context",
+      "content": "This repo uses 'npx tsx' to run TypeScript tests directly. Test command: npm test → npx tsx src/__tests__/handler.test.ts. No test framework — uses a custom test/assert pattern."
+    }
+  ]
+}
