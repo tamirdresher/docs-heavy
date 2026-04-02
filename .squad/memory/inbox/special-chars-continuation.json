@@ -1,0 +1,28 @@
+{
+  "session": "special-chars-query-params-continuation",
+  "timestamp": "2026-04-02T10:07:58Z",
+  "issue": "API returns 500 on special characters in query params",
+  "branch": "fix/special-chars-query-params",
+  "observations": [
+    {
+      "type": "context",
+      "topic": "no-remote-configured",
+      "detail": "This repo has no git remote configured, so branches cannot be pushed and PRs cannot be opened via GitHub/ADO APIs. A remote needs to be added before PRs can be created."
+    },
+    {
+      "type": "decision",
+      "topic": "prior-work-validated",
+      "detail": "A previous session already created the branch fix/special-chars-query-params with 2 commits (4b52fcb fix + 17d2ddf observations). All 15 tests pass. The implementation in src/sanitize/query.ts correctly handles null bytes (strip), path traversal (reject), Unicode/emoji (NFC normalize), and leaves SQL injection to the data-access layer."
+    },
+    {
+      "type": "learning",
+      "topic": "test-runner-pattern",
+      "detail": "This repo uses a minimal custom test runner (no Jest/Vitest) via 'npx tsx src/__tests__/query-sanitize.test.ts'. Tests use a hand-rolled test() + assert() pattern with console output and process.exitCode for failure signaling."
+    },
+    {
+      "type": "context",
+      "topic": "untracked-squad-files",
+      "detail": "The .squad/current-issue.md and .squad/memory/observations.json files were untracked after the previous session. Committed them in 1b414c7 to keep the branch clean."
+    }
+  ]
+}
