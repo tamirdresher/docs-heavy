@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-04-02T07:54:33.709Z",
+  "observations": [
+    {
+      "type": "context",
+      "content": "Verified fix/cache-race-condition branch: all 14 tests pass (10 unit + 4 concurrency). Implementation uses per-key mutex locking (KeyLock class), version stamping, and three write strategies (set, setIfVersion, update). The race condition from the issue — stale read-then-write under concurrent PUT — is eliminated by the atomic update() method."
+    },
+    {
+      "type": "context",
+      "content": "No git remote is configured on this local repo, so a PR cannot be opened. The branch fix/cache-race-condition has 3 commits ahead of master and is ready to push once a remote is added."
+    },
+    {
+      "type": "learning",
+      "content": "This repo has been worked on by two prior sessions that fully implemented and verified the fix. The implementation and test suite are production-quality. Future sessions should check .squad/memory/inbox/ for prior work before re-implementing."
+    },
+    {
+      "type": "decision",
+      "content": "Did not re-implement or modify the existing fix — it is correct and complete. Verified by running the full test suite. No changes needed."
+    }
+  ]
+}
