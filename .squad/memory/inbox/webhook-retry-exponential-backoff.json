@@ -1,0 +1,31 @@
+{
+  "session": "webhook-retry-exponential-backoff",
+  "timestamp": "2026-04-02T13:48:00Z",
+  "issue": "Implement webhook retry with exponential backoff",
+  "observations": [
+    {
+      "type": "pattern",
+      "detail": "Tests use the same lightweight custom harness (test/assert with tsx runner) as rate-limit tests. TestableDeliveryManager subclass overrides sleep() to avoid real delays and capture backoff durations for assertions. Follow this subclass-override pattern for testing any async code with delays."
+    },
+    {
+      "type": "architecture",
+      "detail": "Webhook retry module lives at src/middleware/webhook-retry.ts. Exports WebhookDeliveryManager class, calculateBackoff/isRetryableStatus helpers, and TypeScript interfaces (WebhookDelivery, WebhookRetryOptions, DeliveryPayload, DeliveryResult, DeliverRequest). The deliverFn is injected for testability."
+    },
+    {
+      "type": "convention",
+      "detail": "ESM imports use .js extensions (e.g., import from '../middleware/webhook-retry.js'). This matches the existing rate-limit convention and is enforced by type: module in package.json."
+    },
+    {
+      "type": "decision",
+      "detail": "Exponential backoff uses base-2 with no jitter: delay = baseDelayMs * 2^attempt. The sleep method is protected so subclasses can override it for testing. Non-5xx responses (including 4xx) are treated as successful delivery to avoid retrying client errors."
+    },
+    {
+      "type": "gotcha",
+      "detail": "The package.json test script was updated to run webhook-retry tests. On the master branch, src/ directory does not exist — it only exists on feature branches. When merging multiple feature branches, the test script needs to be updated to run all test files."
+    },
+    {
+      "type": "infrastructure",
+      "detail": "No git remote is configured. Branch 'feature/webhook-retry-exponential-backoff' was created locally from master. A PR cannot be pushed until a remote origin is added."
+    }
+  ]
+}
