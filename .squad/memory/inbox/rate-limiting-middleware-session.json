@@ -1,0 +1,35 @@
+{
+  "session": "rate-limiting-middleware",
+  "timestamp": "2026-04-02T11:45:00Z",
+  "issue": "Add rate limiting middleware",
+  "observations": [
+    {
+      "type": "pattern",
+      "detail": "This repo uses a lightweight custom test harness (test/assert functions with tsx runner) instead of Jest or Vitest. New tests should follow the same pattern found in src/__tests__/query-sanitize.test.ts."
+    },
+    {
+      "type": "architecture",
+      "detail": "Middleware is placed in src/middleware/. The rate-limit module exports types (RateLimitStore, RateLimitRequest, RateLimitResponse) for extensibility and a MemoryStore class as the default store implementation."
+    },
+    {
+      "type": "convention",
+      "detail": "The project uses ESM (type: module in package.json) with .js extensions in import paths even for TypeScript files. All imports must use the .js extension."
+    },
+    {
+      "type": "decision",
+      "detail": "Chose sliding window algorithm (array of timestamps pruned per request) over fixed-window counter to prevent burst allowance at window boundaries. Trade-off: slightly more memory per key but more accurate rate limiting."
+    },
+    {
+      "type": "docs",
+      "detail": "Rate limiting documentation lives in docs/guides/rate-limiting.md. It was expanded from a 1-line stub to full middleware usage docs including config options table, custom keyGenerator, custom store, and sliding window explanation."
+    },
+    {
+      "type": "gotcha",
+      "detail": "The master branch has no src/__tests__/ directory or src/sanitize/ directory — those exist only on the fix/special-chars-query-params branch. The test script in package.json on master was a placeholder echo command."
+    },
+    {
+      "type": "infrastructure",
+      "detail": "No git remote is configured on this repo, so PRs cannot be pushed to a remote. Branch was created locally at feature/rate-limiting-middleware."
+    }
+  ]
+}
