@@ -1,0 +1,31 @@
+{
+  "session": "flaky-ci-tests-investigation",
+  "timestamp": "2026-04-02T18:05:00Z",
+  "issue": "Investigate why tests are flaky in CI",
+  "observations": [
+    {
+      "type": "architecture",
+      "detail": "CI test flakiness root cause is shared mutable infrastructure without per-worker isolation. Four parallel test workers share Docker containers (PostgreSQL, Redis) and network ports. Serial local execution provides implicit isolation that masks the issue."
+    },
+    {
+      "type": "pattern",
+      "detail": "Four failure categories all trace to the same root cause: (1) DB unique constraint contention causes timeouts, (2) cross-worker FK violations cause unexpected 500s, (3) shared Redis connection pool exhaustion causes connection refused, (4) port conflicts cause socket hang up. Fix all four with per-worker isolation."
+    },
+    {
+      "type": "decision",
+      "detail": "Chose documentation-only deliverable (RCA doc + testing tutorial update) since the issue is an investigation task. No code changes needed on master — the test infrastructure changes should be implemented by the Developer role per the squad routing rules."
+    },
+    {
+      "type": "convention",
+      "detail": "Investigation issues per squad routing.md go to the Architect role. The deliverable is an analysis document, not a code fix. Implementation of recommended fixes would be a separate issue routed to Developer."
+    },
+    {
+      "type": "gotcha",
+      "detail": "The master branch has no src/ directory or real test files. The test files referenced in the issue (UserService.test.ts, OrderController.test.ts, etc.) describe CI failures for a hypothetical application layer. The RCA document addresses the architectural patterns regardless of specific test file locations."
+    },
+    {
+      "type": "infrastructure",
+      "detail": "PR #3 opened: investigate/flaky-ci-tests -> master at https://github.com/tamirdresher/docs-heavy/pull/3. Branch pushed via gh auth token + remote URL rewrite to authenticate as tamirdresher."
+    }
+  ]
+}
