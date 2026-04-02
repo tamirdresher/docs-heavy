@@ -1,0 +1,28 @@
+{
+  "session": "special-chars-query-params-final",
+  "timestamp": "2026-04-02T10:10:46Z",
+  "issue": "API returns 500 on special characters in query params",
+  "branch": "fix/special-chars-query-params",
+  "observations": [
+    {
+      "type": "context",
+      "topic": "pr-blocked-no-remote",
+      "detail": "Cannot open a PR because this repository has no git remote configured. The branch fix/special-chars-query-params is ready to merge into master with 4 commits. Once a remote is added, push the branch and open a PR targeting master."
+    },
+    {
+      "type": "decision",
+      "topic": "no-new-changes-needed",
+      "detail": "Validated that prior sessions (fix-special-chars-query-params and continuation) already fully implemented the fix. All 15 tests pass. The sanitize module handles null bytes (strip), path traversal (reject with 400-reason), Unicode/emoji (NFC normalize), and correctly leaves SQL injection to the data-access layer."
+    },
+    {
+      "type": "learning",
+      "topic": "prior-work-reuse",
+      "detail": "Multiple prior sessions had already completed this work. Checked .squad/memory/inbox/ files to understand what was done, verified tests pass, and confirmed the branch is clean. No duplicate work was needed."
+    },
+    {
+      "type": "testing",
+      "topic": "all-tests-pass",
+      "detail": "All 15 tests in src/__tests__/query-sanitize.test.ts pass: null byte stripping (3 tests), path traversal rejection (3 tests), Unicode/emoji handling (3 tests), SQL passthrough (1 test), edge cases for undefined/null/non-string/empty/normal (5 tests)."
+    }
+  ]
+}
