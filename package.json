@@ -4,8 +4,11 @@
   "type": "module",
   "scripts": {
     "build": "echo \"Build docs OK\"",
-    "test": "echo \"Docs tests OK\"",
+    "test": "npx tsx src/__tests__/handler.test.ts",
     "lint": "echo \"Lint OK\"",
     "dev": "echo \"Dev server would start here\""
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
   }
 }
