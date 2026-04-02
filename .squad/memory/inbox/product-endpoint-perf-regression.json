@@ -1,0 +1,31 @@
+{
+  "session": "product-endpoint-perf-regression",
+  "timestamp": "2026-04-02T20:20:00Z",
+  "issue": "Trace performance regression to specific commit",
+  "observations": [
+    {
+      "type": "architecture",
+      "detail": "Product endpoint performance regression root cause: ORM 5.2 → 5.4 upgrade silently changed the default eager-loading strategy from 'join' to 'select'. This turned 2 JOINed queries per request into 42 individual SELECT queries (N+1 pattern), adding ~100ms of network round-trip latency. Only the product list endpoint was affected because it is the only list endpoint that eager-loads multiple nested associations (categories, images, recommendations)."
+    },
+    {
+      "type": "pattern",
+      "detail": "ORM version upgrades can introduce silent performance regressions through default behavior changes that vendors classify as 'improvements' rather than breaking changes. Always run query log diffs and benchmark comparisons before and after ORM upgrades, even for minor/patch versions."
+    },
+    {
+      "type": "decision",
+      "detail": "Recommended per-query eager-loading strategy override (strategy: 'join') rather than global ORM config rollback. This preserves ORM 5.4's memory efficiency benefits for other endpoints while surgically fixing the product list query. The recommendation engine adds ~6ms on top of the ORM regression but is not worth reverting."
+    },
+    {
+      "type": "convention",
+      "detail": "Investigation issues per squad routing.md go to the Architect role. The deliverable is an analysis document (RCA) with bisection results and fix recommendations, not a code fix. Implementation of recommended fixes would be a separate issue routed to Developer."
+    },
+    {
+      "type": "gotcha",
+      "detail": "The master branch has no src/ directory. The repo is documentation-only. Investigation deliverables are documentation (RCA documents, API doc updates, changelog entries). Code samples in the RCA are illustrative of the fix approach for the application layer."
+    },
+    {
+      "type": "infrastructure",
+      "detail": "PR #4 opened: investigate/product-endpoint-perf-regression -> master at https://github.com/tamirdresher/docs-heavy/pull/4. Branch pushed via gh auth token + remote URL rewrite to authenticate as tamirdresher."
+    }
+  ]
+}
