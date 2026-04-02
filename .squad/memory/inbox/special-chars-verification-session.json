@@ -1,0 +1,28 @@
+{
+  "session": "special-chars-verification",
+  "timestamp": "2026-04-02T10:14:33Z",
+  "issue": "API returns 500 on special characters in query params",
+  "branch": "fix/special-chars-query-params",
+  "observations": [
+    {
+      "type": "verification",
+      "topic": "all-tests-passing",
+      "detail": "Ran npm test — all 15 query-sanitize tests pass: null-byte stripping (literal and %00), path-traversal rejection (forward and back slashes), Unicode/emoji handling (NFC normalisation, mixed scripts), SQL passthrough (by design), and edge cases (undefined, null, non-string, empty string)."
+    },
+    {
+      "type": "context",
+      "topic": "no-remote-configured",
+      "detail": "This experiment repo has no git remote configured. Cannot push the branch or open a PR via git/GitHub/Azure DevOps. The fix is complete on the local branch fix/special-chars-query-params with 5 commits ahead of master."
+    },
+    {
+      "type": "learning",
+      "topic": "test-runner-setup",
+      "detail": "Tests use npx tsx directly (no test framework like jest/vitest). The test harness is a hand-rolled async test() + assert() in query-sanitize.test.ts. process.exitCode = 1 on failure ensures CI would catch regressions."
+    },
+    {
+      "type": "context",
+      "topic": "prior-sessions-exist",
+      "detail": "Three prior observation files already exist in .squad/memory/inbox/ from earlier sessions working on this same issue. The fix implementation was already complete — this session confirmed tests pass and the branch is ready for PR once a remote is configured."
+    }
+  ]
+}
