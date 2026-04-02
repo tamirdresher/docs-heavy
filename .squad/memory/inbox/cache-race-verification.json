@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-04-02T07:52:09.117Z",
+  "observations": [
+    {
+      "type": "context",
+      "content": "Verified the fix/cache-race-condition branch: all 14 tests pass (10 unit + 4 concurrency). The CacheStore implementation uses per-key mutex locking via a KeyLock class, version stamping on every entry, and provides three write strategies (set, setIfVersion, update) to prevent the stale-read-overwrite race condition."
+    },
+    {
+      "type": "context",
+      "content": "No git remote is configured on this local repo, so a PR cannot be opened until a remote (e.g. GitHub origin) is added. The branch fix/cache-race-condition is ready to push: 2 commits ahead of master."
+    },
+    {
+      "type": "learning",
+      "content": "The test infrastructure uses npx tsx with a hand-rolled test/assert pattern (no framework like Jest or Vitest). Tests are run via 'npx tsx src/__tests__/cache.test.ts'. The package.json 'test' script is already wired to this."
+    },
+    {
+      "type": "decision",
+      "content": "Did not re-implement the fix since the prior session's implementation is correct and complete. Verified by running the full test suite — all concurrency tests (50 parallel increments, competing setIfVersion, concurrent set+update, independent key parallelism) pass consistently."
+    }
+  ]
+}
