@@ -1,6 +1,6 @@
 {
   "session": "openapi-spec-generation",
-  "timestamp": "2026-04-02T15:50:00Z",
+  "timestamp": "2026-04-02T16:12:00Z",
   "issue": "Add OpenAPI spec generation from route definitions",
   "observations": [
     {
@@ -30,6 +30,10 @@
     {
       "type": "gotcha",
       "detail": "The master branch has no src/ directory (only exists on feature branches). The package.json test script on master is 'echo Docs tests OK'. Each feature branch updates it to run its own tests. When merging, test scripts need reconciliation to run all test files."
+    },
+    {
+      "type": "gotcha",
+      "detail": "gh pr edit fails with 'Projects (classic) is being deprecated' GraphQL error. Use 'gh api repos/{owner}/{repo}/pulls/{id} -X PATCH --input file.json' as workaround to update PR descriptions."
     }
   ]
 }
