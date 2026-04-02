@@ -1,0 +1,33 @@
+{
+  "session": "fix-special-chars-query-params",
+  "timestamp": "2026-04-02T10:04:00Z",
+  "issue": "API returns 500 on special characters in query params",
+  "branch": "fix/special-chars-query-params",
+  "observations": [
+    {
+      "type": "pattern",
+      "topic": "query-sanitisation",
+      "detail": "Created src/sanitize/query.ts as a reusable sanitisation module. The pattern is: validate → clean → normalise → return a SanitizeResult with valid/value/reason fields. Controllers should call sanitizeQuery() before processing user input and return 400 when valid is false."
+    },
+    {
+      "type": "decision",
+      "topic": "sql-injection-not-in-sanitiser",
+      "detail": "SQL injection is intentionally NOT handled in the sanitiser. It must be handled by the data-access layer using parameterised queries. The sanitiser focuses on input that is dangerous before it reaches any query builder (null bytes, path traversal, malformed Unicode)."
+    },
+    {
+      "type": "root-cause",
+      "topic": "normalize-crash",
+      "detail": "The TypeError 'Cannot read properties of undefined (reading normalize)' in SearchController.search was caused by calling .normalize() on a value that was undefined or mangled by upstream encoding mishandling. The fix normalises to NFC in the sanitiser so downstream code always receives a valid string."
+    },
+    {
+      "type": "testing",
+      "topic": "test-setup",
+      "detail": "The master branch had no real tests (package.json test script was just echo). Added npx tsx runner for the new query-sanitize.test.ts with 15 test cases covering null bytes, path traversal, Unicode/emoji, SQL passthrough, and edge cases (undefined, null, non-string, empty)."
+    },
+    {
+      "type": "repo-structure",
+      "topic": "new-module-location",
+      "detail": "Added src/sanitize/query.ts for input sanitisation utilities. This follows the existing src/<domain>/<module>.ts pattern used by src/cache/store.ts. Tests go in src/__tests__/query-sanitize.test.ts."
+    }
+  ]
+}
