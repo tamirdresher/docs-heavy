@@ -1,0 +1,31 @@
+{
+  "session": "api-data-flow-documentation",
+  "timestamp": "2026-04-02T22:30:27Z",
+  "issue": "Understand data flow from API to database",
+  "observations": [
+    {
+      "type": "architecture",
+      "detail": "POST /api/products traverses 9 layers: Rate Limiter → Auth Middleware (JWT) → Route Handler → Validation → Business Logic (enrichment, slug, timestamps) → ORM/Database (INSERT INTO products) → Cache (invalidation of list/count/search keys) → Event Emission (product.created webhook) → Response (201 Created with full Product entity). Each layer has distinct error responses following the standard { error: { code, message } } format."
+    },
+    {
+      "type": "context",
+      "detail": "Source code is distributed across feature branches, not on master. Route definitions in feature/openapi-spec-generation, rate limiting in feature/rate-limiting-middleware, cache store in fix/cache-race-condition, webhook retry in feature/webhook-retry-exponential-backoff. Master branch is documentation-only. Architecture documentation must cross-reference these branches."
+    },
+    {
+      "type": "decision",
+      "detail": "Created the architecture doc as docs/guides/api-data-flow-architecture.md (alongside existing guides) rather than a top-level docs/architecture.md. This follows the existing docs structure where technical deep-dives live in guides/. Included both Mermaid and ASCII diagrams for accessibility across rendering environments."
+    },
+    {
+      "type": "learning",
+      "detail": "The codebase has grown with implementation spread across branches but documentation is centralized on master. For investigations and architecture docs, the deliverable is always a documentation artifact on master, not code changes. This matches the routing.md rule: Investigations → Architect → documentation output."
+    },
+    {
+      "type": "context",
+      "detail": "The cache store uses per-key mutex locking (KeyLock class) with version stamping for optimistic concurrency. On product mutations (POST/PUT/DELETE), the cache invalidates list/count/search keys rather than updating them. Cache failures are non-fatal and don't propagate to API responses."
+    },
+    {
+      "type": "decision",
+      "detail": "Included microservices migration notes in the architecture doc since the issue specifically mentioned planning for microservices migration. Recommended extraction order: Auth Service (stateless) → Event Bus (async) → Product Service (core domain) → Cache (shared infra). This provides actionable guidance beyond just documenting current state."
+    }
+  ]
+}
