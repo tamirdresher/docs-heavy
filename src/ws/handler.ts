@@ -6,6 +6,7 @@ interface Client {
   id: string;
   ws: WebSocket;
   subscribedChannels: Set<string>;
+  channelHandlers: Map<string, (data: unknown) => void>;
 }
 
 const clients = new Map<string, Client>();
@@ -28,6 +29,7 @@ export function handleConnection(ws: WebSocket, req: IncomingMessage): void {
     id: clientId,
     ws,
     subscribedChannels: new Set(),
+    channelHandlers: new Map(),
   };
 
   clients.set(clientId, client);
@@ -57,10 +59,14 @@ export function handleConnection(ws: WebSocket, req: IncomingMessage): void {
     ws.removeListener('close', onClose);
     ws.removeListener('error', onError);
 
-    // Unsubscribe from all channels
+    // Unsubscribe from all channels, removing only this client's handlers
     for (const channel of client.subscribedChannels) {
-      channels.removeAllListeners(channel);
+      const handler = client.channelHandlers.get(channel);
+      if (handler) {
+        channels.removeListener(channel, handler);
+      }
     }
+    client.channelHandlers.clear();
     client.subscribedChannels.clear();
 
     clients.delete(clientId);
@@ -80,20 +86,31 @@ function handleClientMessage(
   switch (message.action) {
     case 'subscribe':
       if (message.channel) {
+        // Remove existing handler for this channel if re-subscribing
+        const existingHandler = client.channelHandlers.get(message.channel);
+        if (existingHandler) {
+          channels.removeListener(message.channel, existingHandler);
+        }
+
         client.subscribedChannels.add(message.channel);
         const handler = (data: unknown) => {
           if (client.ws.readyState === WebSocket.OPEN) {
             client.ws.send(JSON.stringify({ channel: message.channel, data }));
           }
         };
+        client.channelHandlers.set(message.channel, handler);
         channels.on(message.channel!, handler);
       }
       break;
 
     case 'unsubscribe':
       if (message.channel) {
+        const handler = client.channelHandlers.get(message.channel);
+        if (handler) {
+          channels.removeListener(message.channel, handler);
+          client.channelHandlers.delete(message.channel);
+        }
         client.subscribedChannels.delete(message.channel);
-        channels.removeAllListeners(message.channel);
       }
       break;
 
