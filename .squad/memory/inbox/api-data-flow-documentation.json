@@ -1,11 +1,11 @@
 {
   "session": "api-data-flow-documentation",
-  "timestamp": "2026-04-02T22:30:27Z",
+  "timestamp": "2026-04-02T22:43:51Z",
   "issue": "Understand data flow from API to database",
   "observations": [
     {
       "type": "architecture",
-      "detail": "POST /api/products traverses 9 layers: Rate Limiter → Auth Middleware (JWT) → Route Handler → Validation → Business Logic (enrichment, slug, timestamps) → ORM/Database (INSERT INTO products) → Cache (invalidation of list/count/search keys) → Event Emission (product.created webhook) → Response (201 Created with full Product entity). Each layer has distinct error responses following the standard { error: { code, message } } format."
+      "detail": "POST /api/products traverses 9 layers: Rate Limiter → Auth Middleware (JWT) → Route Handler → Validation → Business Logic (enrichment, slug, timestamps) → ORM/Database (INSERT INTO products) → Cache (invalidation of list/count/search keys) → Event Emission (product.created webhook) → Response (201 Created with full Product entity). Most layers use the standard { error: { code, message } } format, except the rate limiter which uses a simpler { error, retryAfter } format."
     },
     {
       "type": "context",
@@ -26,6 +26,14 @@
     {
       "type": "decision",
       "detail": "Included microservices migration notes in the architecture doc since the issue specifically mentioned planning for microservices migration. Recommended extraction order: Auth Service (stateless) → Event Bus (async) → Product Service (core domain) → Cache (shared infra). This provides actionable guidance beyond just documenting current state."
+    },
+    {
+      "type": "gotcha",
+      "detail": "The rate limiter error response format ({ error: 'Too Many Requests', retryAfter: N }) does not match the standard error convention ({ error: { code, message } }) used by other layers. This inconsistency was found by cross-referencing docs against actual source code on feature/rate-limiting-middleware branch. The architecture doc was corrected and a note added recommending alignment in a future refactor."
+    },
+    {
+      "type": "verification",
+      "detail": "Cross-verified architecture doc against actual source code on all 4 feature branches using git show. Route definitions, cache store API (KeyLock, CacheStore, update/invalidate methods), webhook retry (5 retries, 1s/2s/4s/8s/16s exponential backoff, dead-letter queue), and rate limiting algorithm (sliding window) all confirmed accurate at 97% — only the rate limiter error format was inaccurate and has been corrected."
     }
   ]
 }
