@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-04-02T07:56:53.624Z",
+  "observations": [
+    {
+      "type": "context",
+      "content": "Verified fix/cache-race-condition branch (session 4): all 14 tests pass (10 unit + 4 concurrency). The branch is 4 commits ahead of master. Implementation is complete and correct — per-key mutex locking via KeyLock class, version stamping, and three write strategies (set, setIfVersion, update)."
+    },
+    {
+      "type": "context",
+      "content": "No git remote is configured on this local repo, so a PR cannot be opened. Three prior sessions have already implemented and verified the fix. The branch fix/cache-race-condition is ready to push once a remote is added."
+    },
+    {
+      "type": "learning",
+      "content": "This issue has been fully resolved across 4 sessions. Future sessions should not re-implement — only push the branch and open a PR once a remote is configured. Check .squad/memory/inbox/ before starting work."
+    },
+    {
+      "type": "learning",
+      "content": "npm test runs 'npx tsx src/__tests__/cache.test.ts' with a hand-rolled test runner (no Jest/Vitest). Tests include concurrency scenarios: 50 parallel increments, competing setIfVersion, concurrent set+update, and independent key parallelism."
+    }
+  ]
+}
