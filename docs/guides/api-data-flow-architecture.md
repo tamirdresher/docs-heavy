@@ -173,10 +173,8 @@ HTTP 429 Too Many Requests
 Retry-After: 42
 
 {
-  "error": {
-    "code": "RATE_LIMIT_EXCEEDED",
-    "message": "Rate limit exceeded. Try again in 42 seconds."
-  }
+  "error": "Too Many Requests",
+  "retryAfter": 42
 }
 ```
 
@@ -517,14 +515,14 @@ Content-Type: application/json
 
 | Layer           | HTTP Status | Error Code           | Trigger                        |
 |-----------------|-------------|----------------------|--------------------------------|
-| Rate Limiter    | 429         | `RATE_LIMIT_EXCEEDED`| > 1000 req/min/key             |
+| Rate Limiter    | 429         | *(simple format)*    | > 1000 req/min/key             |
 | Auth Middleware | 401         | `UNAUTHORIZED`       | Missing/invalid/expired JWT    |
 | Validation      | 400         | `VALIDATION_ERROR`   | Missing/invalid fields         |
 | Business Logic  | 409         | `CONFLICT`           | Duplicate SKU or slug          |
 | Database        | 503         | `SERVICE_UNAVAILABLE`| DB connection failure          |
 | Internal        | 500         | `INTERNAL_ERROR`     | Unexpected server error        |
 
-All errors follow the standard format:
+Most layers follow the standard error format:
 
 ```json
 {
@@ -534,6 +532,9 @@ All errors follow the standard format:
   }
 }
 ```
+
+> **Note:** The rate limiter uses a simpler format (`{ "error": "Too Many Requests", "retryAfter": N }`)
+> that predates the standard error convention. Consider aligning it in a future refactor.
 
 ---
 
