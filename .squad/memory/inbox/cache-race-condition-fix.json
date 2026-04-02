@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-04-02T07:42:51.808Z",
+  "observations": [
+    {
+      "type": "decision",
+      "content": "Used a per-key mutex (KeyLock class) rather than a global lock. This ensures concurrent updates to the same cache key are serialised while updates to different keys proceed in parallel, avoiding unnecessary contention."
+    },
+    {
+      "type": "decision",
+      "content": "Provided three write strategies: set() for unconditional overwrites, setIfVersion() for optimistic concurrency control, and update() for atomic read-modify-write. The update() method is the primary fix — it runs the entire read-transform-write cycle under a single lock acquisition."
+    },
+    {
+      "type": "decision",
+      "content": "Added version stamping (monotonically increasing integer per key) to every cache entry. This enables callers to detect conflicts without holding locks by using setIfVersion(), which rejects writes when the version has changed since the caller last read."
+    },
+    {
+      "type": "learning",
+      "content": "The race condition had two viable fix strategies: (1) pessimistic locking via mutex, and (2) optimistic concurrency via version checks. We implemented both — the mutex in set/update/delete, and version-based CAS in setIfVersion — so API consumers can choose the appropriate strategy for their use case."
+    },
+    {
+      "type": "learning",
+      "content": "The repo on master has stub test/build scripts (echo 'OK'). The WebSocket fix branch added real tests using npx tsx with a custom test/assert pattern (no test framework). We followed the same pattern for cache tests."
+    },
+    {
+      "type": "context",
+      "content": "No git remote is configured on this repo, so the branch fix/cache-race-condition was committed locally. A PR should be opened once a remote is added. The branch is based on master."
+    },
+    {
+      "type": "context",
+      "content": "The test suite for the cache store includes 14 tests: 10 unit tests for basic CRUD/versioning and 4 concurrency tests that launch parallel operations (50 concurrent increments, concurrent set+update, two competing setIfVersion calls, independent key parallelism)."
+    }
+  ]
+}
