@@ -1,0 +1,35 @@
+{
+  "session": "rate-limiting-middleware-completion",
+  "timestamp": "2026-04-02T15:01:00Z",
+  "issue": "Add rate limiting middleware",
+  "observations": [
+    {
+      "type": "pattern",
+      "detail": "Tests use a custom lightweight harness (test/assert helpers with tsx runner) defined inline in each test file. All 18 tests pass. Follow this pattern for new test files — do not introduce Jest/Vitest."
+    },
+    {
+      "type": "architecture",
+      "detail": "Rate-limit middleware lives at src/middleware/rate-limit.ts. It exports the rateLimit factory, MemoryStore class, and TypeScript interfaces (RateLimitOptions, RateLimitRequest, RateLimitResponse, RateLimitStore) for extensibility."
+    },
+    {
+      "type": "convention",
+      "detail": "ESM imports require .js extensions even for TypeScript source files (e.g., import from '../middleware/rate-limit.js'). This is enforced by the type: module setting in package.json."
+    },
+    {
+      "type": "decision",
+      "detail": "Sliding window algorithm chosen over fixed-window counter. Stores an array of timestamps per key, pruned on each request. Trade-off: O(n) memory per key where n = maxRequests, but prevents burst allowance at window boundaries."
+    },
+    {
+      "type": "docs",
+      "detail": "Full rate-limiting documentation added to docs/guides/rate-limiting.md covering quick start, config options table, 429 response format, custom keyGenerator, custom store (Redis example), and sliding window explanation."
+    },
+    {
+      "type": "infrastructure",
+      "detail": "No git remote is configured on this repo. Branches are local only. PRs cannot be pushed to a remote — must add a remote origin before PR workflow is possible."
+    },
+    {
+      "type": "gotcha",
+      "detail": "The package.json test script was updated from a placeholder echo to 'npx tsx src/__tests__/rate-limit.test.ts'. If additional test files are added, the script will need to be updated to run them all."
+    }
+  ]
+}
