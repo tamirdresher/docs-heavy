@@ -1,0 +1,20 @@
+{
+  "session": "fix-special-chars-complete",
+  "timestamp": "2026-04-02T10:15:30Z",
+  "issue": "API returns 500 on special characters in query params",
+  "branch": "fix/special-chars-query-params",
+  "observations": [
+    {
+      "type": "decision",
+      "content": "Reused existing fix on branch fix/special-chars-query-params rather than reimplementing. The sanitizeQuery() function in src/sanitize/query.ts already correctly handles all four attack vectors: null-byte injection (stripped), path traversal (rejected with 400), Unicode/emoji (NFC-normalised), and SQL injection (intentionally passed through for DAL to handle with parameterised queries)."
+    },
+    {
+      "type": "learning",
+      "content": "This repo has no git remote configured — PRs cannot be pushed. The test runner uses npx tsx directly (no jest/vitest). Test infrastructure was added as part of this fix since master only had echo stubs."
+    },
+    {
+      "type": "context",
+      "content": "All 15 tests pass. The root cause of the 500 was a TypeError in SearchController.search calling .normalize() on undefined/mangled input. The sanitiser now guarantees NFC-normalised strings before they reach controllers."
+    }
+  ]
+}
