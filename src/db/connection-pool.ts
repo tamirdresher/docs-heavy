@@ -6,11 +6,24 @@
  *  - Idle connection reaping
  *  - Prepared statement caching per connection
  *  - Wait queue with configurable timeout on pool exhaustion
+ *  - Optional query logging for debugging (SQL, params, duration)
  *
  * In production, back this with pg.Pool, mysql2, or a similar driver.
  * This implementation provides the interface and in-memory simulation
  * for testing and demonstration.
  */
+
+/** Query log entry emitted when query logging is enabled. */
+export interface QueryLogEntry {
+  connectionId: string;
+  sql: string;
+  params?: unknown[];
+  durationMs: number;
+  timestamp: number;
+}
+
+/** Callback invoked for each query when logging is enabled. */
+export type QueryLogger = (entry: QueryLogEntry) => void;
 
 export interface PoolOptions {
   /** Minimum number of idle connections to maintain. Default: 2. */
@@ -23,6 +36,8 @@ export interface PoolOptions {
   acquireTimeoutMs?: number;
   /** Connection string / DSN. */
   connectionString?: string;
+  /** Optional query logger. When set, every query and execute call is logged. */
+  queryLogger?: QueryLogger;
 }
 
 export interface DatabaseConnection {
@@ -60,6 +75,7 @@ let nextConnectionId = 0;
 function createInMemoryConnection(
   store: Map<string, Map<string, Record<string, unknown>>>,
   onRelease: (conn: DatabaseConnection) => void,
+  logger?: QueryLogger,
 ): DatabaseConnection {
   const id = `conn-${++nextConnectionId}`;
   let txActive = false;
@@ -70,8 +86,12 @@ function createInMemoryConnection(
     inTransaction: false,
 
     async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
-      // Simulate parameterized query execution against in-memory store
-      return simulateQuery<T>(store, sql, params);
+      const start = Date.now();
+      const result = simulateQuery<T>(store, sql, params);
+      if (logger) {
+        logger({ connectionId: id, sql, params, durationMs: Date.now() - start, timestamp: Date.now() });
+      }
+      return result;
     },
 
     async execute<T>(name: string, sql: string, params?: unknown[]): Promise<T[]> {
@@ -79,7 +99,13 @@ function createInMemoryConnection(
       if (!preparedCache.has(name)) {
         preparedCache.set(name, sql);
       }
-      return simulateQuery<T>(store, preparedCache.get(name)!, params);
+      const resolvedSql = preparedCache.get(name)!;
+      const start = Date.now();
+      const result = simulateQuery<T>(store, resolvedSql, params);
+      if (logger) {
+        logger({ connectionId: id, sql: resolvedSql, params, durationMs: Date.now() - start, timestamp: Date.now() });
+      }
+      return result;
     },
 
     async beginTransaction(): Promise<void> {
@@ -141,7 +167,7 @@ function simulateQuery<T>(
  * Connection pool with configurable size and idle reaping.
  */
 export class ConnectionPool {
-  private readonly options: Required<PoolOptions>;
+  private readonly options: Required<Omit<PoolOptions, 'queryLogger'>>;
   private readonly connections: PooledConnection[] = [];
   private readonly store: Map<string, Map<string, Record<string, unknown>>>;
   private readonly waitQueue: Array<{
@@ -151,6 +177,7 @@ export class ConnectionPool {
   }> = [];
   private closed = false;
   private reaperInterval: ReturnType<typeof setInterval> | null = null;
+  private readonly queryLogger?: QueryLogger;
 
   constructor(options: PoolOptions = {}) {
     this.options = {
@@ -160,6 +187,7 @@ export class ConnectionPool {
       acquireTimeoutMs: options.acquireTimeoutMs ?? 5_000,
       connectionString: options.connectionString ?? 'memory://',
     };
+    this.queryLogger = options.queryLogger;
 
     if (this.options.minSize < 0) throw new Error('minSize must be non-negative');
     if (this.options.maxSize < 1) throw new Error('maxSize must be at least 1');
@@ -289,7 +317,7 @@ export class ConnectionPool {
           entry.idle = true;
           entry.lastUsedAt = Date.now();
         }
-      }),
+      }, this.queryLogger),
       createdAt: Date.now(),
       lastUsedAt: Date.now(),
       idle: true,

@@ -153,6 +153,8 @@ export abstract class Repository<T extends Entity> {
 
   /**
    * Update an existing entity.
+   * Checks existence via the (overridable) findById, then performs
+   * the update using a single connection from the pool.
    */
   async update(id: string, changes: Partial<T>): Promise<T | undefined> {
     const existing = await this.findById(id);

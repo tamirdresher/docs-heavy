@@ -97,6 +97,32 @@ The `toEntity`/`toRow` mapping in `UserRepository` correctly handles the `passwo
 - Pagination edge cases tested (empty, single page, multi-page, limit bounds)
 - Error paths tested (pool exhaustion, double transactions, commit after rollback)
 
+## Follow-up Review (Round 2)
+
+### 🟢 Added: Query logging for production debugging
+
+Optional `queryLogger` callback on `PoolOptions` logs every `query()` and `execute()` call with SQL, params, duration, and connection ID. Disabled by default — no performance impact when not set. Useful for detecting N+1 regressions and slow queries.
+
+### 🟢 Added: Repository CRUD test coverage
+
+Added tests for `Repository.update()`, `Repository.delete()`, and `Repository.count()` — these base class operations had no direct test coverage.
+
+### 🟢 Added: Adapter deprecation annotations
+
+`UserRepositoryAdapter` now has `@deprecated` JSDoc tags and a TODO with a target removal timeline, making the migration intent explicit for IDE tooling.
+
+### 🟡 Note: Repository.update() acquires two connections sequentially
+
+`update()` calls `this.findById()` (acquires + releases) then acquires a second connection for the UPDATE. This is sequential (not concurrent), so it won't deadlock, but it does use two pool round-trips. A production optimization would combine the existence check and update into a single SQL statement (e.g., `UPDATE ... RETURNING *`). Added a test confirming it works with `maxSize=1`.
+
+## Updated Test Coverage
+
+| Suite | Tests |
+|---|---|
+| Auth tests | 70 |
+| Repository tests | 49 |
+| **Total** | **119** |
+
 ## Decision
 
 **Approve with suggestions** — The repository pattern is correctly applied, all three performance optimizations are preserved, and the migration path via the adapter is reasonable. Address the adapter migration timeline in a follow-up.
