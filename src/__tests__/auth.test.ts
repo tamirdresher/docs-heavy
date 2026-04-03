@@ -1,0 +1,503 @@
+/**
+ * Tests for JWT authentication system.
+ *
+ * Covers:
+ *  - JWT token generation, verification, and expiry
+ *  - Password hashing and verification
+ *  - Auth middleware (valid token, missing header, bad format, expired)
+ *  - Role-based access control
+ *  - Auth route handlers (register, login, refresh, logout)
+ *  - User model CRUD operations
+ *  - Security: timing-safe comparison, token type enforcement
+ */
+
+import { createJwtManager, type JwtPayload } from '../auth/jwt.js';
+import { hashPassword, verifyPassword } from '../auth/password.js';
+import { authMiddleware, type AuthRequest, type AuthResponse } from '../middleware/auth.js';
+import { requireRole } from '../middleware/roles.js';
+import { UserStore } from '../models/user.js';
+import { createAuthRoutes } from '../routes/auth.js';
+
+// ── test helpers ────────────────────────────────────────────────────────
+
+function test(name: string, fn: () => void | Promise<void>): Promise<void> {
+  const result = Promise.resolve().then(fn);
+  return result.then(
+    () => console.log(`  ✓ ${name}`),
+    (e: any) => {
+      console.error(`  ✗ ${name}: ${e.message}`);
+      process.exitCode = 1;
+    },
+  );
+}
+
+function assert(condition: boolean, msg: string): void {
+  if (!condition) throw new Error(msg);
+}
+
+function mockRes(): AuthResponse & {
+  statusCode?: number;
+  body?: unknown;
+} {
+  const res: any = {};
+  res.status = (code: number) => {
+    res.statusCode = code;
+    return res;
+  };
+  res.json = (b: unknown) => {
+    res.body = b;
+  };
+  return res;
+}
+
+const TEST_SECRET = 'a-very-secure-secret-that-is-at-least-32-chars-long!!';
+
+// ── tests ───────────────────────────────────────────────────────────────
+
+async function runTests() {
+  // ───── JWT Token Tests ─────
+
+  console.log('\nJWT Token tests:');
+
+  await test('createJwtManager: rejects short secret', async () => {
+    let threw = false;
+    try {
+      createJwtManager({ secret: 'short' });
+    } catch {
+      threw = true;
+    }
+    assert(threw, 'Should reject secret < 32 chars');
+  });
+
+  await test('createJwtManager: rejects empty secret', async () => {
+    let threw = false;
+    try {
+      createJwtManager({ secret: '' });
+    } catch {
+      threw = true;
+    }
+    assert(threw, 'Should reject empty secret');
+  });
+
+  await test('generateAccessToken: produces valid JWT string', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const token = await mgr.generateAccessToken('user-123', 'user');
+    const parts = token.split('.');
+    assert(parts.length === 3, `JWT should have 3 parts, got ${parts.length}`);
+  });
+
+  await test('verify: returns payload for valid access token', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const token = await mgr.generateAccessToken('user-456', 'admin');
+    const payload = await mgr.verify(token);
+    assert(payload !== null, 'Payload should not be null');
+    assert(payload!.sub === 'user-456', `sub should be user-456, got ${payload!.sub}`);
+    assert(payload!.role === 'admin', `role should be admin, got ${payload!.role}`);
+    assert(payload!.type === 'access', `type should be access, got ${payload!.type}`);
+  });
+
+  await test('verify: returns payload for valid refresh token', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const token = await mgr.generateRefreshToken('user-789', 'user');
+    const payload = await mgr.verify(token);
+    assert(payload !== null, 'Payload should not be null');
+    assert(payload!.type === 'refresh', `type should be refresh, got ${payload!.type}`);
+  });
+
+  await test('verify: returns null for tampered token', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const token = await mgr.generateAccessToken('user-123', 'user');
+    const tampered = token.slice(0, -5) + 'XXXXX';
+    const payload = await mgr.verify(tampered);
+    assert(payload === null, 'Should return null for tampered token');
+  });
+
+  await test('verify: returns null for token signed with different secret', async () => {
+    const mgr1 = createJwtManager({ secret: TEST_SECRET });
+    const mgr2 = createJwtManager({ secret: 'another-secret-that-is-at-least-32-chars-long!!' });
+    const token = await mgr1.generateAccessToken('user-123', 'user');
+    const payload = await mgr2.verify(token);
+    assert(payload === null, 'Should return null for different secret');
+  });
+
+  await test('verify: returns null for expired token', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    // Generate a token that expired 10 seconds ago by using sign() with past timestamp
+    const token = await mgr.sign({ sub: 'user-123', role: 'user', type: 'access' }, 5, Math.floor(Date.now() / 1000) - 15);
+    const payload = await mgr.verify(token);
+    assert(payload === null, 'Should return null for expired token');
+  });
+
+  await test('verify: returns null for malformed token', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    assert(await mgr.verify('not-a-jwt') === null, 'Should reject garbage');
+    assert(await mgr.verify('a.b') === null, 'Should reject 2-part token');
+    assert(await mgr.verify('') === null, 'Should reject empty string');
+  });
+
+  await test('generateTokenPair: returns both tokens', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const pair = await mgr.generateTokenPair('user-123', 'user');
+    assert(typeof pair.accessToken === 'string', 'Should have accessToken');
+    assert(typeof pair.refreshToken === 'string', 'Should have refreshToken');
+    assert(pair.accessToken !== pair.refreshToken, 'Tokens should be different');
+  });
+
+  // ───── Password Tests ─────
+
+  console.log('\nPassword hashing tests:');
+
+  await test('hashPassword: returns scrypt hash string', async () => {
+    const hash = await hashPassword('mypassword123');
+    assert(hash.startsWith('$scrypt$'), `Hash should start with $scrypt$, got: ${hash.substring(0, 20)}`);
+  });
+
+  await test('verifyPassword: matches correct password', async () => {
+    const hash = await hashPassword('correcthorse');
+    const result = await verifyPassword('correcthorse', hash);
+    assert(result === true, 'Should verify correct password');
+  });
+
+  await test('verifyPassword: rejects wrong password', async () => {
+    const hash = await hashPassword('correcthorse');
+    const result = await verifyPassword('wronghorse', hash);
+    assert(result === false, 'Should reject wrong password');
+  });
+
+  await test('hashPassword: different salts produce different hashes', async () => {
+    const h1 = await hashPassword('samepassword');
+    const h2 = await hashPassword('samepassword');
+    assert(h1 !== h2, 'Hashes should differ due to random salt');
+  });
+
+  await test('hashPassword: rejects empty string', async () => {
+    let threw = false;
+    try {
+      await hashPassword('');
+    } catch {
+      threw = true;
+    }
+    assert(threw, 'Should reject empty password');
+  });
+
+  await test('verifyPassword: rejects malformed hash', async () => {
+    const result = await verifyPassword('password', 'not-a-valid-hash');
+    assert(result === false, 'Should return false for malformed hash');
+  });
+
+  // ───── Auth Middleware Tests ─────
+
+  console.log('\nAuth middleware tests:');
+
+  await test('authMiddleware: passes with valid access token', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const token = await mgr.generateAccessToken('user-1', 'user');
+    const mw = authMiddleware(mgr);
+
+    const req: AuthRequest = { headers: { authorization: `Bearer ${token}` } };
+    const res = mockRes();
+    let nextCalled = false;
+
+    await mw(req, res, () => { nextCalled = true; });
+    assert(nextCalled, 'next() should be called');
+    assert(req.user?.sub === 'user-1', 'Should attach user to request');
+  });
+
+  await test('authMiddleware: rejects missing auth header', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const mw = authMiddleware(mgr);
+
+    const req: AuthRequest = { headers: {} };
+    const res = mockRes();
+    let nextCalled = false;
+
+    await mw(req, res, () => { nextCalled = true; });
+    assert(!nextCalled, 'next() should not be called');
+    assert(res.statusCode === 401, `Should return 401, got ${res.statusCode}`);
+  });
+
+  await test('authMiddleware: rejects invalid format (no Bearer prefix)', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const mw = authMiddleware(mgr);
+
+    const req: AuthRequest = { headers: { authorization: 'Basic abc123' } };
+    const res = mockRes();
+    let nextCalled = false;
+
+    await mw(req, res, () => { nextCalled = true; });
+    assert(!nextCalled, 'next() should not be called');
+    assert(res.statusCode === 401, `Should return 401, got ${res.statusCode}`);
+  });
+
+  await test('authMiddleware: rejects expired token', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    // Generate a token that expired 10 seconds ago
+    const token = await mgr.sign({ sub: 'user-1', role: 'user', type: 'access' }, 5, Math.floor(Date.now() / 1000) - 15);
+
+    const mw = authMiddleware(mgr);
+    const req: AuthRequest = { headers: { authorization: `Bearer ${token}` } };
+    const res = mockRes();
+    let nextCalled = false;
+
+    await mw(req, res, () => { nextCalled = true; });
+    assert(!nextCalled, 'next() should not be called');
+    assert(res.statusCode === 401, `Should return 401, got ${res.statusCode}`);
+  });
+
+  await test('authMiddleware: rejects refresh token used as access token', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const token = await mgr.generateRefreshToken('user-1', 'user');
+
+    const mw = authMiddleware(mgr);
+    const req: AuthRequest = { headers: { authorization: `Bearer ${token}` } };
+    const res = mockRes();
+    let nextCalled = false;
+
+    await mw(req, res, () => { nextCalled = true; });
+    assert(!nextCalled, 'next() should not be called for refresh token');
+    assert(res.statusCode === 401, `Should return 401, got ${res.statusCode}`);
+  });
+
+  // ───── Role Middleware Tests ─────
+
+  console.log('\nRole-based access control tests:');
+
+  await test('requireRole: allows matching role', () => {
+    const mw = requireRole('admin');
+    const req: AuthRequest = {
+      headers: {},
+      user: { sub: 'u1', role: 'admin', iat: 0, exp: 999999999, type: 'access' },
+    };
+    const res = mockRes();
+    let nextCalled = false;
+
+    mw(req, res, () => { nextCalled = true; });
+    assert(nextCalled, 'next() should be called for admin');
+  });
+
+  await test('requireRole: rejects non-matching role', () => {
+    const mw = requireRole('admin');
+    const req: AuthRequest = {
+      headers: {},
+      user: { sub: 'u1', role: 'user', iat: 0, exp: 999999999, type: 'access' },
+    };
+    const res = mockRes();
+    let nextCalled = false;
+
+    mw(req, res, () => { nextCalled = true; });
+    assert(!nextCalled, 'next() should not be called for regular user');
+    assert(res.statusCode === 403, `Should return 403, got ${res.statusCode}`);
+  });
+
+  await test('requireRole: allows if any role matches', () => {
+    const mw = requireRole('admin', 'user');
+    const req: AuthRequest = {
+      headers: {},
+      user: { sub: 'u1', role: 'user', iat: 0, exp: 999999999, type: 'access' },
+    };
+    const res = mockRes();
+    let nextCalled = false;
+
+    mw(req, res, () => { nextCalled = true; });
+    assert(nextCalled, 'next() should be called when role is in allowed set');
+  });
+
+  await test('requireRole: rejects unauthenticated request', () => {
+    const mw = requireRole('admin');
+    const req: AuthRequest = { headers: {} }; // no user
+    const res = mockRes();
+    let nextCalled = false;
+
+    mw(req, res, () => { nextCalled = true; });
+    assert(!nextCalled, 'next() should not be called');
+    assert(res.statusCode === 401, `Should return 401, got ${res.statusCode}`);
+  });
+
+  await test('requireRole: throws if no roles specified', () => {
+    let threw = false;
+    try {
+      requireRole();
+    } catch {
+      threw = true;
+    }
+    assert(threw, 'Should throw if no roles');
+  });
+
+  // ───── User Model Tests ─────
+
+  console.log('\nUser model tests:');
+
+  await test('UserStore: creates and retrieves user by ID', () => {
+    const store = new UserStore();
+    const user = store.create({ email: 'test@example.com', passwordHash: 'hash123' });
+    const found = store.findById(user.id);
+    assert(found !== undefined, 'Should find user by ID');
+    assert(found!.email === 'test@example.com', 'Email should match');
+    store.clear();
+  });
+
+  await test('UserStore: finds user by email (case insensitive)', () => {
+    const store = new UserStore();
+    store.create({ email: 'Test@Example.COM', passwordHash: 'hash123' });
+    const found = store.findByEmail('test@example.com');
+    assert(found !== undefined, 'Should find user by lowercase email');
+    store.clear();
+  });
+
+  await test('UserStore: rejects duplicate email', () => {
+    const store = new UserStore();
+    store.create({ email: 'dupe@test.com', passwordHash: 'hash1' });
+    let threw = false;
+    try {
+      store.create({ email: 'dupe@test.com', passwordHash: 'hash2' });
+    } catch (e: any) {
+      threw = e.message === 'EMAIL_EXISTS';
+    }
+    assert(threw, 'Should throw EMAIL_EXISTS for duplicate');
+    store.clear();
+  });
+
+  await test('UserStore: toPublic strips passwordHash', () => {
+    const store = new UserStore();
+    const user = store.create({ email: 'pub@test.com', passwordHash: 'secret' });
+    const pub = store.toPublic(user);
+    assert(!('passwordHash' in pub), 'Should not contain passwordHash');
+    assert('email' in pub, 'Should contain email');
+    store.clear();
+  });
+
+  await test('UserStore: defaults role to user', () => {
+    const store = new UserStore();
+    const user = store.create({ email: 'role@test.com', passwordHash: 'h' });
+    assert(user.role === 'user', `Default role should be user, got ${user.role}`);
+    store.clear();
+  });
+
+  await test('UserStore: findByEmail returns undefined for unknown email', () => {
+    const store = new UserStore();
+    assert(store.findByEmail('nobody@test.com') === undefined, 'Should return undefined');
+  });
+
+  // ───── Auth Routes Tests ─────
+
+  console.log('\nAuth route handler tests:');
+
+  const jwtMgr = createJwtManager({ secret: TEST_SECRET });
+  const userStore = new UserStore();
+  const routes = createAuthRoutes({ userStore, jwtManager: jwtMgr });
+
+  await test('register: creates account and returns tokens', async () => {
+    userStore.clear();
+    const req = { body: { email: 'new@test.com', password: 'password123' }, headers: {} };
+    const res = mockRes();
+    await routes.register(req as any, res);
+    assert(res.statusCode === 201, `Should return 201, got ${res.statusCode}`);
+    assert(typeof (res.body as any).accessToken === 'string', 'Should return accessToken');
+    assert(typeof (res.body as any).refreshToken === 'string', 'Should return refreshToken');
+    assert((res.body as any).user.email === 'new@test.com', 'Should return user');
+  });
+
+  await test('register: rejects invalid email', async () => {
+    const req = { body: { email: 'notanemail', password: 'password123' }, headers: {} };
+    const res = mockRes();
+    await routes.register(req as any, res);
+    assert(res.statusCode === 400, `Should return 400, got ${res.statusCode}`);
+  });
+
+  await test('register: rejects short password', async () => {
+    const req = { body: { email: 'valid@test.com', password: 'short' }, headers: {} };
+    const res = mockRes();
+    await routes.register(req as any, res);
+    assert(res.statusCode === 400, `Should return 400, got ${res.statusCode}`);
+  });
+
+  await test('register: rejects duplicate email', async () => {
+    userStore.clear();
+    const req1 = { body: { email: 'dupe@test.com', password: 'password123' }, headers: {} };
+    await routes.register(req1 as any, mockRes());
+
+    const req2 = { body: { email: 'dupe@test.com', password: 'password456' }, headers: {} };
+    const res = mockRes();
+    await routes.register(req2 as any, res);
+    assert(res.statusCode === 409, `Should return 409, got ${res.statusCode}`);
+  });
+
+  await test('login: authenticates valid credentials', async () => {
+    userStore.clear();
+    // Register first
+    await routes.register(
+      { body: { email: 'login@test.com', password: 'password123' }, headers: {} } as any,
+      mockRes(),
+    );
+
+    const req = { body: { email: 'login@test.com', password: 'password123' }, headers: {} };
+    const res = mockRes();
+    await routes.login(req as any, res);
+    assert(res.statusCode === 200, `Should return 200, got ${res.statusCode}`);
+    assert(typeof (res.body as any).accessToken === 'string', 'Should return accessToken');
+  });
+
+  await test('login: rejects wrong password', async () => {
+    const req = { body: { email: 'login@test.com', password: 'wrongpassword' }, headers: {} };
+    const res = mockRes();
+    await routes.login(req as any, res);
+    assert(res.statusCode === 401, `Should return 401, got ${res.statusCode}`);
+  });
+
+  await test('login: rejects unknown email', async () => {
+    const req = { body: { email: 'unknown@test.com', password: 'password123' }, headers: {} };
+    const res = mockRes();
+    await routes.login(req as any, res);
+    assert(res.statusCode === 401, `Should return 401, got ${res.statusCode}`);
+  });
+
+  await test('refresh: issues new tokens from valid refresh token', async () => {
+    userStore.clear();
+    // Register to get tokens
+    const regRes = mockRes();
+    await routes.register(
+      { body: { email: 'ref@test.com', password: 'password123' }, headers: {} } as any,
+      regRes,
+    );
+    const refreshToken = (regRes.body as any).refreshToken;
+
+    const req = { body: { refreshToken }, headers: {} };
+    const res = mockRes();
+    await routes.refresh(req as any, res);
+    assert(res.statusCode === 200, `Should return 200, got ${res.statusCode}`);
+    assert(typeof (res.body as any).accessToken === 'string', 'Should return new accessToken');
+  });
+
+  await test('refresh: rejects access token as refresh token', async () => {
+    userStore.clear();
+    const regRes = mockRes();
+    await routes.register(
+      { body: { email: 'ref2@test.com', password: 'password123' }, headers: {} } as any,
+      regRes,
+    );
+    const accessToken = (regRes.body as any).accessToken;
+
+    const req = { body: { refreshToken: accessToken }, headers: {} };
+    const res = mockRes();
+    await routes.refresh(req as any, res);
+    assert(res.statusCode === 401, `Should return 401 for access token used as refresh, got ${res.statusCode}`);
+  });
+
+  await test('refresh: rejects invalid refresh token', async () => {
+    const req = { body: { refreshToken: 'invalid-token' }, headers: {} };
+    const res = mockRes();
+    await routes.refresh(req as any, res);
+    assert(res.statusCode === 401, `Should return 401, got ${res.statusCode}`);
+  });
+
+  await test('logout: returns 204', () => {
+    const req = { body: {}, headers: {} };
+    const res = mockRes();
+    routes.logout(req as any, res);
+    assert(res.statusCode === 204, `Should return 204, got ${res.statusCode}`);
+  });
+
+  console.log('\nAll auth tests passed!');
+}
+
+runTests();

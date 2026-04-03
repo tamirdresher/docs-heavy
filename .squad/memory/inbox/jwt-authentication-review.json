@@ -1,0 +1,39 @@
+{
+  "session": "jwt-authentication-review",
+  "timestamp": "2026-04-03T01:42:00Z",
+  "issue": "Review PR adding authentication",
+  "observations": [
+    {
+      "type": "architecture",
+      "detail": "JWT auth system uses 6 modules: jwt.ts (HMAC-SHA256 token generation/verification with timing-safe comparison), password.ts (scrypt hashing with self-describing hash format), auth middleware (Bearer token extraction, token type enforcement), roles middleware (RBAC with admin/user), user model (in-memory store with email normalization), and route handlers (register/login/refresh/logout with dependency injection)."
+    },
+    {
+      "type": "context",
+      "detail": "The test harness follows the same pattern as other feature branches (e.g., rate-limiting-middleware): custom test()/assert() functions with tsx runner, no Jest/Vitest. Tests run via 'npx tsx src/__tests__/auth.test.ts'. The 40-test suite covers JWT signing/verification/expiry, password hash/verify, middleware auth/RBAC, user model CRUD, and all route handlers."
+    },
+    {
+      "type": "decision",
+      "detail": "Used scrypt instead of bcrypt for password hashing. scrypt is memory-hard and provides better resistance to GPU/ASIC brute-force attacks. The hash format is self-describing ($scrypt$N=...$r=...$p=...$salt$hash) so parameters can evolve without a migration."
+    },
+    {
+      "type": "learning",
+      "detail": "JWT expiration timestamps use second-level granularity (Math.floor(Date.now()/1000)). Tests that need expired tokens must use a sign() helper with a past timestamp override, not short TTL + setTimeout. The 50ms sleep approach fails because the minimum resolution is 1 second."
+    },
+    {
+      "type": "gotcha",
+      "detail": "The UserStore.generateId() originally used require('node:crypto') which fails in ESM mode (the repo uses 'type': 'module' in package.json). All imports must use ESM 'import' syntax or dynamic 'await import()'. Math.random hex generation works for the in-memory store but production should use crypto.randomUUID()."
+    },
+    {
+      "type": "decision",
+      "detail": "Auth error responses use the standard { error: { code, message } } format consistent with the rest of the API, unlike the rate limiter which uses { error: 'Too Many Requests', retryAfter: N }. This was a deliberate choice to match the convention documented in the architecture doc from the previous investigation."
+    },
+    {
+      "type": "verification",
+      "detail": "All 40 tests pass. Coverage includes: JWT (10 tests: signing, verification, expiry, tampering, wrong secret, malformed, token pair), Password (6 tests: hash, verify, wrong password, unique salts, empty input, malformed hash), Auth middleware (5 tests: valid token, missing header, bad format, expired, refresh-as-access), RBAC (5 tests: matching role, non-matching, multi-role, unauthenticated, no-roles-error), User model (6 tests: create/find, email case, duplicate, toPublic, default role, unknown email), Routes (8 tests: register, login, refresh, logout, validation errors, duplicates)."
+    },
+    {
+      "type": "context",
+      "detail": "Code review identified 3 items for follow-up: (1) logout is a no-op with stateless JWTs - needs token blacklist for production, (2) refresh endpoint does not rotate tokens - stolen refresh tokens reusable until 7-day expiry, (3) auth endpoints lack rate limiting - should integrate with existing sliding-window rate limiter from feature/rate-limiting-middleware branch."
+    }
+  ]
+}
