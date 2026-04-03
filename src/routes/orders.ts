@@ -14,7 +14,7 @@
  */
 
 import type { JwtPayload } from '../auth/jwt.js';
-import type { OrderStore, OrderItem, OrderStatus } from '../models/order.js';
+import type { Order, OrderStore, OrderItem, OrderStatus } from '../models/order.js';
 
 export interface OrderRouteRequest {
   body: Record<string, unknown>;
@@ -36,15 +36,22 @@ export interface OrderDependencies {
 
 const VALID_STATUSES: OrderStatus[] = ['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'];
 
+/** Validation limits to prevent abuse and ensure data integrity. */
+const MAX_PRODUCT_ID_LENGTH = 255;
+const MAX_ITEMS_PER_ORDER = 100;
+const MAX_QUANTITY = 999_999;
+const MAX_UNIT_PRICE = 999_999.99;
+const MAX_CURSOR_LENGTH = 1000;
+
 /**
  * Validate an order item.
  */
 function isValidOrderItem(item: unknown): item is OrderItem {
   if (typeof item !== 'object' || item === null) return false;
   const obj = item as Record<string, unknown>;
-  if (typeof obj.productId !== 'string' || obj.productId.length === 0) return false;
-  if (typeof obj.quantity !== 'number' || !Number.isInteger(obj.quantity) || obj.quantity < 1) return false;
-  if (typeof obj.unitPrice !== 'number' || obj.unitPrice < 0) return false;
+  if (typeof obj.productId !== 'string' || obj.productId.length === 0 || obj.productId.length > MAX_PRODUCT_ID_LENGTH) return false;
+  if (typeof obj.quantity !== 'number' || !Number.isInteger(obj.quantity) || obj.quantity < 1 || obj.quantity > MAX_QUANTITY) return false;
+  if (typeof obj.unitPrice !== 'number' || !Number.isFinite(obj.unitPrice) || obj.unitPrice < 0 || obj.unitPrice > MAX_UNIT_PRICE) return false;
   return true;
 }
 
@@ -52,15 +59,15 @@ function isValidOrderItem(item: unknown): item is OrderItem {
  * Validate an array of order items.
  */
 function isValidItemsArray(items: unknown): items is OrderItem[] {
-  if (!Array.isArray(items) || items.length === 0) return false;
+  if (!Array.isArray(items) || items.length === 0 || items.length > MAX_ITEMS_PER_ORDER) return false;
   return items.every(isValidOrderItem);
 }
 
 /**
- * Check if the requesting user can modify this order.
- * Only the order owner or an admin can modify.
+ * Check if the requesting user can access (view or modify) this order.
+ * Only the order owner or an admin can access.
  */
-function canModifyOrder(user: JwtPayload, orderUserId: string): boolean {
+function canAccessOrder(user: JwtPayload, orderUserId: string): boolean {
   return user.role === 'admin' || user.sub === orderUserId;
 }
 
@@ -90,7 +97,7 @@ export function createOrderRoutes(deps: OrderDependencies) {
       res.status(400).json({
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'items must be a non-empty array of { productId: string, quantity: number (≥1), unitPrice: number (≥0) }',
+          message: `items must be a non-empty array (max ${MAX_ITEMS_PER_ORDER}) of { productId: string (max ${MAX_PRODUCT_ID_LENGTH} chars), quantity: integer (1–${MAX_QUANTITY}), unitPrice: number (0–${MAX_UNIT_PRICE}) }`,
         },
       });
       return;
@@ -122,6 +129,13 @@ export function createOrderRoutes(deps: OrderDependencies) {
     const cursor = req.query.cursor;
     const limitStr = req.query.limit;
     const limit = limitStr ? parseInt(limitStr, 10) : 20;
+
+    if (cursor && cursor.length > MAX_CURSOR_LENGTH) {
+      res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: `cursor must be at most ${MAX_CURSOR_LENGTH} characters` },
+      });
+      return;
+    }
 
     if (limitStr && (isNaN(limit) || limit < 1 || limit > 100)) {
       res.status(400).json({
@@ -175,9 +189,10 @@ export function createOrderRoutes(deps: OrderDependencies) {
       return;
     }
 
-    if (!canModifyOrder(req.user, order.userId)) {
-      res.status(403).json({
-        error: { code: 'FORBIDDEN', message: 'You do not have permission to view this order' },
+    if (!canAccessOrder(req.user, order.userId)) {
+      // Return 404 to prevent order ID enumeration (IDOR protection)
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Order not found' },
       });
       return;
     }
@@ -217,9 +232,17 @@ export function createOrderRoutes(deps: OrderDependencies) {
       return;
     }
 
-    if (!canModifyOrder(req.user, order.userId)) {
-      res.status(403).json({
-        error: { code: 'FORBIDDEN', message: 'You do not have permission to modify this order' },
+    if (!canAccessOrder(req.user, order.userId)) {
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Order not found' },
+      });
+      return;
+    }
+
+    // Cancelled orders cannot be modified
+    if (order.status === 'cancelled') {
+      res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'Cannot update a cancelled order' },
       });
       return;
     }
@@ -231,7 +254,7 @@ export function createOrderRoutes(deps: OrderDependencies) {
       res.status(400).json({
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'items must be a non-empty array of { productId: string, quantity: number (≥1), unitPrice: number (≥0) }',
+          message: `items must be a non-empty array (max ${MAX_ITEMS_PER_ORDER}) of { productId: string (max ${MAX_PRODUCT_ID_LENGTH} chars), quantity: integer (1–${MAX_QUANTITY}), unitPrice: number (0–${MAX_UNIT_PRICE}) }`,
         },
       });
       return;
@@ -258,11 +281,11 @@ export function createOrderRoutes(deps: OrderDependencies) {
       return;
     }
 
-    const changes: Record<string, unknown> = {};
-    if (items !== undefined) changes.items = items;
-    if (status !== undefined) changes.status = status;
+    const changes: Partial<Pick<Order, 'items' | 'status'>> = {};
+    if (items !== undefined) changes.items = items as OrderItem[];
+    if (status !== undefined) changes.status = status as OrderStatus;
 
-    const updated = orderStore.update(id, changes as any);
+    const updated = orderStore.update(id, changes);
 
     if (!updated) {
       res.status(404).json({
@@ -306,9 +329,9 @@ export function createOrderRoutes(deps: OrderDependencies) {
       return;
     }
 
-    if (!canModifyOrder(req.user, order.userId)) {
-      res.status(403).json({
-        error: { code: 'FORBIDDEN', message: 'You do not have permission to delete this order' },
+    if (!canAccessOrder(req.user, order.userId)) {
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Order not found' },
       });
       return;
     }

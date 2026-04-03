@@ -1,0 +1,45 @@
+{
+  "timestamp": "2026-04-03T11:56:00Z",
+  "issue": "Review PR adding new API endpoints",
+  "pr": 22,
+  "branch": "review/order-management-review-4",
+  "observations": [
+    {
+      "type": "security",
+      "summary": "Added input size limits to prevent DoS via unbounded payloads",
+      "detail": "All user-supplied fields now have maximum size limits: productId (255 chars), items array (100 per order), quantity (999,999), unitPrice (999,999.99), and cursor query parameter (1,000 chars). Without these limits, an attacker could send megabyte-sized productId strings, arrays with 100k+ items, or extremely long cursor values to exhaust server memory and CPU. Limits are enforced in isValidOrderItem() and isValidItemsArray() validation functions and as a pre-validation check for cursor in listOrders().",
+      "confidence": "high"
+    },
+    {
+      "type": "code-quality",
+      "summary": "Extracted validation limit constants for maintainability",
+      "detail": "Replaced magic numbers in validation with named constants (MAX_PRODUCT_ID_LENGTH, MAX_ITEMS_PER_ORDER, MAX_QUANTITY, MAX_UNIT_PRICE, MAX_CURSOR_LENGTH). These constants are defined at module scope in orders.ts and referenced in both validation logic and error messages, ensuring consistency and making future limit adjustments a single-line change.",
+      "confidence": "high"
+    },
+    {
+      "type": "documentation",
+      "summary": "Fixed error table: removed nonexistent 403 FORBIDDEN, added validation limits",
+      "detail": "The API docs listed a FORBIDDEN (403) error code that never occurs in the implementation — IDOR protection returns 404 instead. Removed the 403 entry and clarified that NOT_FOUND (404) is also returned for non-owner access. Added a new Validation Limits table documenting all field constraints (items array size, productId length, quantity/unitPrice ranges, cursor/limit bounds).",
+      "confidence": "high"
+    },
+    {
+      "type": "testing",
+      "summary": "Added 8 new boundary validation tests bringing total to 62",
+      "detail": "Added tests for: (1) productId exceeding 255 chars rejected, (2) productId at 255 chars accepted, (3) items array >100 rejected, (4) items array at 100 accepted, (5) quantity >999999 rejected, (6) unitPrice >999999.99 rejected, (7) cursor >1000 chars rejected, (8) whitespace-only productId behavior documented. All 62 tests passing.",
+      "confidence": "high"
+    },
+    {
+      "type": "convention",
+      "summary": "All user-supplied string/array inputs should have explicit size limits",
+      "detail": "Any API endpoint accepting user input should enforce maximum sizes for strings (productId, cursor, etc.) and arrays (items) to prevent denial-of-service attacks. This convention is now implemented in the order endpoints and should be followed for any future endpoints (e.g., /api/invoices, /api/products). Validation limits should be defined as named constants and documented in the API reference.",
+      "confidence": "high"
+    }
+  ],
+  "verdict": "review_complete_with_fixes",
+  "tests": {
+    "total": 62,
+    "new": 8,
+    "passing": 62,
+    "failing": 0
+  }
+}

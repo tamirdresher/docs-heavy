@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-04-03T11:50:00Z",
+  "issue": "Review PR adding new API endpoints",
+  "pr": 21,
+  "branch": "review/order-management-review-3",
+  "observations": [
+    {
+      "type": "security",
+      "summary": "Replaced 403 with 404 for non-owner access (IDOR protection)",
+      "detail": "GET/PUT/DELETE endpoints returned 403 FORBIDDEN when a non-owner tried to access another user's order, which confirmed the order existed. Changed to 404 NOT_FOUND across all three endpoints so non-owners cannot distinguish between 'order exists but forbidden' and 'order does not exist'. This follows OWASP IDOR prevention guidelines and matches how GitHub handles private resource access.",
+      "confidence": "high"
+    },
+    {
+      "type": "bug",
+      "summary": "Cancelled orders could be updated back to active status",
+      "detail": "The PUT endpoint allowed updating orders regardless of their current status, meaning a cancelled order could be set back to 'pending' or 'confirmed'. Added validation in the update route to reject any modifications to cancelled orders with a 400 VALIDATION_ERROR. This prevents illogical state transitions and ensures cancelled orders are immutable.",
+      "confidence": "high"
+    },
+    {
+      "type": "testing",
+      "summary": "Added 3 new security and business logic tests bringing total to 54",
+      "detail": "Added tests for: (1) cancelled order status update rejection, (2) cancelled order item update rejection, (3) IDOR indistinguishability verification — confirms that non-owner access and non-existent order access return byte-identical 404 responses. Updated 3 existing tests from expecting 403 to 404 for IDOR protection.",
+      "confidence": "high"
+    },
+    {
+      "type": "convention",
+      "summary": "Non-owner resource access should return 404, not 403",
+      "detail": "Returning 403 for unauthorized access to a specific resource reveals that the resource exists (information disclosure). The convention for this API should be to return 404 for any resource the requesting user cannot access, matching the pattern used by GitHub and recommended by OWASP for IDOR prevention. This applies to any future resource-specific endpoints (e.g., /api/invoices/:id).",
+      "confidence": "high"
+    }
+  ],
+  "verdict": "review_complete_with_fixes",
+  "tests": {
+    "total": 54,
+    "new": 3,
+    "passing": 54,
+    "failing": 0
+  }
+}
