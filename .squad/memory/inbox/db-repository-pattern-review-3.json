@@ -1,0 +1,63 @@
+{
+  "timestamp": "2026-04-03T07:05:00Z",
+  "issue": "Review PR refactoring database layer",
+  "pr": 15,
+  "branch": "review/db-repository-pattern-review-3",
+  "observations": [
+    {
+      "type": "bug_fix",
+      "summary": "UnitOfWork.begin() leaked connection when beginTransaction() threw",
+      "detail": "After acquiring a connection from the pool, begin() called beginTransaction() without a try/catch. If beginTransaction() failed (e.g., connection error), the acquired connection was never released back to the pool, causing a permanent resource leak. Now begin() wraps beginTransaction() in try/catch and releases the connection on failure before re-throwing.",
+      "confidence": "high"
+    },
+    {
+      "type": "bug_fix",
+      "summary": "UserRepository cache not invalidated on update() and delete()",
+      "detail": "UserRepository maintains in-memory caches (users Map, emailIndex Map) for fast lookups. The base Repository<T>.update() and delete() methods were inherited without any cache invalidation, so after mutating via update/delete, the in-memory cache served stale data. Now both methods are overridden in UserRepository to keep caches in sync — update() refreshes the cached entity and handles email index changes, delete() removes entries from both maps.",
+      "confidence": "high"
+    },
+    {
+      "type": "bug_fix",
+      "summary": "findByEmail() only searched in-memory cache, never queried DB",
+      "detail": "findByEmail() returned undefined when the email wasn't in the in-memory emailIndex, without falling back to the database. In multi-instance deployments, users created on other instances were invisible. Now it falls back to a prepared-statement DB query (SELECT * FROM users WHERE email = $1) on cache miss and populates the cache on hit.",
+      "confidence": "high"
+    },
+    {
+      "type": "bug_fix",
+      "summary": "withTransaction() lost original error when rollback also failed",
+      "detail": "If the user callback threw an error and the subsequent rollback() also threw (e.g., because the connection was already released or closed), the rollback error would overwrite the original. The caller saw 'Already committed' or 'No active transaction' instead of the real problem. Now rollback errors are caught and swallowed, and the original error is always rethrown.",
+      "confidence": "high"
+    },
+    {
+      "type": "bug_fix",
+      "summary": "Double initialize() leaked duplicate reaper intervals",
+      "detail": "ConnectionPool.initialize() started a new setInterval reaper on every call without checking if one already existed. Calling initialize() twice (e.g., in test setup or retry logic) would create duplicate reapers that could not all be cleared by close(). Added a guard: if (this.reaperInterval) already exists, skip creating a new one.",
+      "confidence": "high"
+    },
+    {
+      "type": "bug_fix",
+      "summary": "Connection.release() race condition with wait queue on auto-rollback",
+      "detail": "When a connection with an active transaction was released, release() cleared the transaction state synchronously but also called onRelease() immediately, potentially handing the connection to a waiter before any real-driver rollback could complete. Now the pool return is deferred to the next microtick (Promise.resolve().then()) so the state cleanup fully settles before reuse.",
+      "confidence": "high"
+    },
+    {
+      "type": "testing",
+      "summary": "Added 7 new tests covering all round 3 fixes",
+      "detail": "New tests: (1) double initialize safety, (2) UoW begin connection release on failure, (3) withTransaction preserves original error, (4) update cache invalidation, (5) delete cache invalidation, (6) findByEmail DB fallback on cache miss, (7) release defers pool return during auto-rollback. All 126 total tests pass (70 auth + 56 repository).",
+      "confidence": "high"
+    },
+    {
+      "type": "documentation",
+      "summary": "Updated review doc with round 3 findings and test counts",
+      "detail": "Added Round 3 section to docs/reviews/db-repository-pattern-review.md documenting all 6 bug fixes. Updated test count table from 119 to 126.",
+      "confidence": "high"
+    }
+  ],
+  "verdict": "fixes_applied",
+  "tests": {
+    "total": 126,
+    "new": 7,
+    "passing": 126,
+    "failing": 0
+  }
+}
