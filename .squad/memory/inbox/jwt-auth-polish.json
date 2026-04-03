@@ -1,0 +1,31 @@
+{
+  "session": "jwt-auth-polish",
+  "timestamp": "2026-04-03T02:18:00Z",
+  "issue": "Review PR adding authentication",
+  "observations": [
+    {
+      "type": "decision",
+      "detail": "Added explicit 'import { randomUUID } from node:crypto' in user.ts. The code previously relied on the global crypto object (crypto.randomUUID()), which is only available in Node.js v19+. The explicit import ensures compatibility with Node v18 LTS and makes the dependency visible."
+    },
+    {
+      "type": "decision",
+      "detail": "Made Bearer scheme comparison case-insensitive in auth middleware (parts[0].toLowerCase() !== 'bearer'). RFC 7235 Section 2.1 specifies that the auth-scheme token is case-insensitive. Some HTTP clients and reverse proxies normalize Authorization headers differently, so accepting 'bearer', 'BEARER', etc. prevents silent authentication failures."
+    },
+    {
+      "type": "decision",
+      "detail": "Moved DUMMY_HASH from a local variable inside login() to a module-level constant. The previous placement re-allocated the string on every login call. As a module constant, the timing-safe intent is more visible to reviewers, and the allocation happens once at module load."
+    },
+    {
+      "type": "decision",
+      "detail": "Changed prune() in TokenBlacklist to snapshot Map entries into an array before deleting (Array.from(this.entries.entries())), consistent with the eviction loop fix from the hardening review. While ES spec permits Map mutation during for...of iteration, the snapshot approach makes deletion behavior explicit and avoids subtle engine-specific differences."
+    },
+    {
+      "type": "verification",
+      "detail": "All 70 tests pass (5 new). New tests cover: lowercase 'bearer' scheme accepted, uppercase 'BEARER' scheme accepted, capital-A Authorization header, UserStore UUID generation uniqueness and format, and module-level DUMMY_HASH correctness for non-existent user logins. PR #11 opened against feature/jwt-authentication."
+    },
+    {
+      "type": "context",
+      "detail": "Remaining items not addressed across all review rounds: (1) Rate limiting on /login, /register, /refresh, (2) Redis-backed token blacklist for multi-server deployments, (3) JWT ID (jti) claim for individual token tracking, (4) Account lockout after failed login attempts, (5) iss/aud claims for multi-tenant scenarios, (6) CSRF protection."
+    }
+  ]
+}
