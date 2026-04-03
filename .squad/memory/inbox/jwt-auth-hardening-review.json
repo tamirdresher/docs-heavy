@@ -1,0 +1,35 @@
+{
+  "session": "jwt-auth-hardening-review",
+  "timestamp": "2026-04-03T02:11:00Z",
+  "issue": "Review PR adding authentication",
+  "observations": [
+    {
+      "type": "decision",
+      "detail": "Enforced 128-character max password length in both isValidPassword() route validation and hashPassword() utility. Without this cap, an attacker could submit multi-MB passwords causing scrypt to consume excessive CPU and memory, creating a DoS vector. The 128-char limit is generous for real passwords while preventing abuse."
+    },
+    {
+      "type": "decision",
+      "detail": "Added user existence verification in the refresh endpoint via userStore.findById(payload.sub). Previously, a deleted or suspended user's refresh token would still produce valid new tokens. Now the endpoint also uses the user's current role instead of the stale role from the old token, preventing privilege persistence after a role downgrade."
+    },
+    {
+      "type": "decision",
+      "detail": "Changed logout from res.status(204).json({}) to res.status(204).end(). HTTP 204 No Content responses must not include a body per RFC 7231. Added end() to the AuthRouteResponse interface to support this."
+    },
+    {
+      "type": "decision",
+      "detail": "Fixed token blacklist eviction to snapshot Map keys into an array before deletion loop, instead of iterating a live iterator while deleting entries. While ES spec permits Map mutation during iteration, the array approach is safer and more explicit about which entries are removed."
+    },
+    {
+      "type": "verification",
+      "detail": "All 65 tests pass (7 new). New tests cover: password >128 chars rejected at route and hash levels, password at exactly 128 chars accepted, refresh rejected for deleted users, refresh works with current user role, logout calls end() not json() for 204, logout handles fully unauthenticated requests. PR #10 opened against feature/jwt-authentication."
+    },
+    {
+      "type": "context",
+      "detail": "AuthDependencies interface in routes/auth.ts now requires findById() on userStore, which is a breaking change for any code providing custom user store implementations. The UserStore class already had this method, so existing consumers using UserStore are unaffected."
+    },
+    {
+      "type": "context",
+      "detail": "Remaining items not addressed: (1) Rate limiting on /login, /register, /refresh, (2) Redis-backed token blacklist for multi-server deployments, (3) JWT ID (jti) claim for individual token tracking, (4) iss/aud claims for multi-tenant scenarios, (5) Audit logging for authentication events."
+    }
+  ]
+}
