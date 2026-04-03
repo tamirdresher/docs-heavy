@@ -120,8 +120,8 @@ Added tests for `Repository.update()`, `Repository.delete()`, and `Repository.co
 | Suite | Tests |
 |---|---|
 | Auth tests | 70 |
-| Repository tests | 56 |
-| **Total** | **126** |
+| Repository tests | 61 |
+| **Total** | **131** |
 
 ## Follow-up Review (Round 3)
 
@@ -148,6 +148,32 @@ Calling `initialize()` twice would start a second `setInterval` reaper without c
 ### 🟢 Fixed: release() defers pool return when auto-rolling back
 
 Previously, `release()` returned the connection to the pool synchronously even when an auto-rollback was in progress. A waiting consumer could receive a mid-rollback connection. Now the pool return is deferred to the next microtick so the state cleanup completes first.
+
+## Follow-up Review (Round 4)
+
+### 🟢 Fixed: UnitOfWork.getConnection/getRepository allowed use after completion
+
+After `commit()` or `rollback()`, the UnitOfWork still held a reference to the now-released connection. Calling `getConnection()` or `getRepository()` would return this released connection without error, allowing callers to issue queries on a connection that may already be in use by another consumer — a shared mutable state bug. Both methods now check `committed` and `rolledBack` flags and throw if the UoW has completed.
+
+### 🟢 Fixed: Delete cache invalidation test had tautology assertions
+
+The test for `UserRepository.delete()` cache invalidation used assertions of the form `assert(byId === undefined || byId === byId)` which are always true regardless of the value. The test provided zero assurance that cache invalidation worked. Replaced with direct assertions against the internal `users` and `emailIndex` maps to verify the cache entries are actually removed.
+
+### 🟢 Fixed: Batch findByIds() had no test coverage
+
+The "Batch query" test claimed to exercise `findByIds()` but only called individual `findById()` in a loop. The batch IN-clause code path was never invoked. Updated the test to call `findByIds(ids)` directly, and added two new tests: one for the empty-array short-circuit and one exercising the batch code path with mixed existing/non-existing IDs.
+
+### 🟡 Note: Repository.delete() returns true regardless of entity existence
+
+The base `Repository.delete()` runs `DELETE FROM ... WHERE id = $1` without checking the affected row count, always returning `true`. In the simulated in-memory store this is benign, but in a real database driver, DELETE on a non-existent row returns 0 affected rows. Consider returning `false` when no rows are affected once a real driver is integrated.
+
+## Updated Test Coverage
+
+| Suite | Tests |
+|---|---|
+| Auth tests | 70 |
+| Repository tests | 61 |
+| **Total** | **131** |
 
 ## Decision
 

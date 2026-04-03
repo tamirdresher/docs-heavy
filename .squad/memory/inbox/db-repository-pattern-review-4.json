@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-04-03T07:14:00Z",
+  "issue": "Review PR refactoring database layer",
+  "pr": 16,
+  "branch": "review/db-repository-pattern-review-4",
+  "observations": [
+    {
+      "type": "bug_fix",
+      "summary": "UnitOfWork.getConnection/getRepository allowed use after commit/rollback",
+      "detail": "After commit() or rollback(), the UnitOfWork still held a reference to the now-released DatabaseConnection. Calling getConnection() or getRepository() would return this released connection without error, allowing callers to issue queries on a connection that may already be reused by another consumer from the pool — a shared mutable state bug. Both methods now check committed/rolledBack flags and throw 'UnitOfWork already completed' if the UoW has finished.",
+      "confidence": "high"
+    },
+    {
+      "type": "bug_fix",
+      "summary": "Delete cache invalidation test had tautology assertions (always-true)",
+      "detail": "The test for UserRepository.delete() cache invalidation used assertions like assert(byId === undefined || byId === byId) which are logically always true — (x === undefined || x === x) holds for every value of x. The test provided zero assurance that delete() actually cleared the in-memory caches. Replaced with direct assertions against the internal users Map and emailIndex Map to verify entries are actually removed.",
+      "confidence": "high"
+    },
+    {
+      "type": "bug_fix",
+      "summary": "Batch findByIds() method had no actual test coverage",
+      "detail": "The 'Batch query: findByIds returns all matching users' test never called findByIds(). It created users, extracted their IDs, then called individual findById() in a loop — exercising the single-lookup path, not the batch IN-clause path. Updated the test to call findByIds(ids) directly. Also added two new tests: empty-array short-circuit and mixed existing/non-existing ID batch.",
+      "confidence": "high"
+    },
+    {
+      "type": "suggestion",
+      "summary": "Repository.delete() returns true regardless of whether entity existed",
+      "detail": "The base Repository.delete() runs DELETE FROM ... WHERE id = $1 without checking affected row count, always returning true. In the simulated in-memory store this is benign, but with a real database driver, DELETE on a non-existent row returns 0 affected rows. Consider returning false when no rows are affected once a real driver is integrated.",
+      "confidence": "medium"
+    },
+    {
+      "type": "testing",
+      "summary": "Added 5 new tests covering all round 4 fixes",
+      "detail": "New tests: (1) getConnection rejects after commit, (2) getConnection rejects after rollback, (3) getRepository rejects after commit, (4) findByIds returns empty array for empty input, (5) findByIds exercises batch IN-clause code path. All 131 total tests pass (70 auth + 61 repository).",
+      "confidence": "high"
+    },
+    {
+      "type": "documentation",
+      "summary": "Updated review doc with round 4 findings and test counts",
+      "detail": "Added Round 4 section to docs/reviews/db-repository-pattern-review.md documenting UoW safety fix, tautology test fix, findByIds coverage fix, and delete return value suggestion. Updated test count table from 126 to 131.",
+      "confidence": "high"
+    }
+  ],
+  "verdict": "fixes_applied",
+  "tests": {
+    "total": 131,
+    "new": 5,
+    "passing": 131,
+    "failing": 0
+  }
+}

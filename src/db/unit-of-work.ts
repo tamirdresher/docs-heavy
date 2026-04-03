@@ -63,6 +63,9 @@ export class UnitOfWork {
     if (!this.connection) {
       throw new Error('UnitOfWork not started — call begin() first');
     }
+    if (this.committed || this.rolledBack) {
+      throw new Error('UnitOfWork already completed — connection has been released');
+    }
     return factory(this.connection);
   }
 
@@ -72,6 +75,9 @@ export class UnitOfWork {
   getConnection(): DatabaseConnection {
     if (!this.connection) {
       throw new Error('UnitOfWork not started — call begin() first');
+    }
+    if (this.committed || this.rolledBack) {
+      throw new Error('UnitOfWork already completed — connection has been released');
     }
     return this.connection;
   }
