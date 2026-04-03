@@ -105,6 +105,17 @@ Authorization: Bearer <token>
 
 **Response**: 204 No Content
 
+## Validation Limits
+
+| Field | Limit |
+|-------|-------|
+| `items` array | 1–100 items per order |
+| `productId` | 1–255 characters |
+| `quantity` | 1–999,999 (integer) |
+| `unitPrice` | 0–999,999.99 |
+| `cursor` | Max 1,000 characters |
+| `limit` | 1–100 (default 20) |
+
 ## Error Responses
 All errors follow the standard format:
 ```json
@@ -114,6 +125,5 @@ All errors follow the standard format:
 | Code | HTTP | Description |
 |------|------|-------------|
 | `UNAUTHORIZED` | 401 | Missing or invalid authentication |
-| `FORBIDDEN` | 403 | Insufficient permissions |
-| `NOT_FOUND` | 404 | Order not found |
+| `NOT_FOUND` | 404 | Order not found (also returned for non-owner access to prevent ID enumeration) |
 | `VALIDATION_ERROR` | 400 | Invalid input data |
