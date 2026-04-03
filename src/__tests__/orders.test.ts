@@ -256,6 +256,32 @@ async function runTests() {
     assert(res.statusCode === 400, `expected 400, got ${res.statusCode}`);
   });
 
+  await test('POST /api/orders: rejects NaN unitPrice (400)', () => {
+    const orderStore = new OrderStore();
+    const routes = createOrderRoutes({ orderStore });
+    const req: any = {
+      body: { items: [{ productId: 'p1', quantity: 1, unitPrice: NaN }] },
+      params: {}, query: {}, user: makeUser(),
+    };
+    const res = mockRes();
+    routes.createOrder(req, res);
+    assert(res.statusCode === 400, `expected 400, got ${res.statusCode}`);
+    assert(res.body.error.code === 'VALIDATION_ERROR', 'should be VALIDATION_ERROR');
+  });
+
+  await test('POST /api/orders: rejects Infinity unitPrice (400)', () => {
+    const orderStore = new OrderStore();
+    const routes = createOrderRoutes({ orderStore });
+    const req: any = {
+      body: { items: [{ productId: 'p1', quantity: 1, unitPrice: Infinity }] },
+      params: {}, query: {}, user: makeUser(),
+    };
+    const res = mockRes();
+    routes.createOrder(req, res);
+    assert(res.statusCode === 400, `expected 400, got ${res.statusCode}`);
+    assert(res.body.error.code === 'VALIDATION_ERROR', 'should be VALIDATION_ERROR');
+  });
+
   await test('POST /api/orders: rejects unauthenticated (401)', () => {
     const orderStore = new OrderStore();
     const routes = createOrderRoutes({ orderStore });
