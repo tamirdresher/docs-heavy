@@ -173,8 +173,10 @@ export class UserRepository extends Repository<User> {
  * with synchronous findByEmail/findById calls while the repository
  * layer is async underneath.
  *
- * REVIEW NOTE: This adapter exists for backwards compatibility during
+ * @deprecated This adapter exists for backwards compatibility during
  * migration. New code should use UserRepository directly with await.
+ * TODO: Remove this adapter once all callers have migrated to async
+ * UserRepository methods. Target removal: next major version.
  */
 export class UserRepositoryAdapter {
   private readonly repo: UserRepository;

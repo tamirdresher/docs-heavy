@@ -753,6 +753,170 @@ async function runTests() {
     await pool.close();
   });
 
+  // ───── Repository CRUD Tests ─────
+
+  console.log('\nRepository CRUD tests:');
+
+  await test('Repository.update: returns updated entity for existing user', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const repo = new UserRepository(pool);
+
+    const user = await repo.createUser({
+      email: 'update-test@example.com',
+      passwordHash: 'hash',
+      role: 'user',
+    });
+
+    const updated = await repo.update(user.id, { role: 'admin' } as any);
+    assert(updated !== undefined, 'Should return updated entity');
+    assert((updated as any).role === 'admin', 'Role should be updated');
+    assert((updated as any).email === 'update-test@example.com', 'Email unchanged');
+
+    repo.clear();
+    await pool.close();
+  });
+
+  await test('Repository.update: returns undefined for non-existent ID', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const repo = new UserRepository(pool);
+
+    const result = await repo.update('nonexistent-id', { role: 'admin' } as any);
+    assert(result === undefined, 'Should return undefined for missing entity');
+
+    await pool.close();
+  });
+
+  await test('Repository.update: works with maxSize=1 pool', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 1 });
+    await pool.initialize();
+    const repo = new UserRepository(pool);
+
+    const user = await repo.createUser({
+      email: 'single-conn@example.com',
+      passwordHash: 'hash',
+    });
+
+    // Verify update works correctly with a single-connection pool.
+    // findById() acquires and releases before update() acquires.
+    const updated = await repo.update(user.id, { role: 'admin' } as any);
+    assert(updated !== undefined, 'Should succeed with maxSize=1');
+
+    repo.clear();
+    await pool.close();
+  });
+
+  await test('Repository.delete: removes entity', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const repo = new UserRepository(pool);
+
+    const user = await repo.createUser({
+      email: 'delete-test@example.com',
+      passwordHash: 'hash',
+    });
+
+    const result = await repo.delete(user.id);
+    assert(result === true, 'Delete should return true');
+
+    await pool.close();
+  });
+
+  await test('Repository.count: returns number of entities', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const repo = new UserRepository(pool);
+
+    await repo.createUser({ email: 'count1@example.com', passwordHash: 'h' });
+    await repo.createUser({ email: 'count2@example.com', passwordHash: 'h' });
+
+    // count() goes through the pool — tests the SQL path
+    const count = await repo.count();
+    assert(typeof count === 'number', 'Count should return a number');
+
+    repo.clear();
+    await pool.close();
+  });
+
+  // ───── Query Logging Tests ─────
+
+  console.log('\nQuery logging tests:');
+
+  await test('Query logging: logs queries when logger is set', async () => {
+    const logs: Array<{ sql: string; connectionId: string; durationMs: number }> = [];
+    const pool = new ConnectionPool({
+      minSize: 1,
+      maxSize: 5,
+      queryLogger: (entry) => logs.push(entry),
+    });
+    await pool.initialize();
+
+    const conn = await pool.acquire();
+    await conn.query('SELECT * FROM users WHERE id = $1', ['test-id']);
+    assert(logs.length === 1, `Expected 1 log entry, got ${logs.length}`);
+    assert(logs[0].sql === 'SELECT * FROM users WHERE id = $1', 'SQL should match');
+    assert(typeof logs[0].durationMs === 'number', 'Should have duration');
+    assert(typeof logs[0].connectionId === 'string', 'Should have connection ID');
+
+    conn.release();
+    await pool.close();
+  });
+
+  await test('Query logging: logs prepared statement executions', async () => {
+    const logs: Array<{ sql: string }> = [];
+    const pool = new ConnectionPool({
+      minSize: 1,
+      maxSize: 5,
+      queryLogger: (entry) => logs.push(entry),
+    });
+    await pool.initialize();
+
+    const conn = await pool.acquire();
+    await conn.execute('find_user', 'SELECT * FROM users WHERE id = $1', ['id1']);
+    await conn.execute('find_user', 'SELECT * FROM users WHERE id = $1', ['id2']);
+
+    assert(logs.length === 2, `Expected 2 log entries, got ${logs.length}`);
+    assert(logs[0].sql.includes('SELECT'), 'First log should contain SELECT');
+    assert(logs[1].sql.includes('SELECT'), 'Second log should contain SELECT');
+
+    conn.release();
+    await pool.close();
+  });
+
+  await test('Query logging: no logs when logger is not set', async () => {
+    // Just ensure no errors when queryLogger is undefined
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+
+    const conn = await pool.acquire();
+    await conn.query('SELECT * FROM test');
+    await conn.execute('stmt', 'SELECT * FROM test', []);
+    // No assertion needed — just verify no crash
+    conn.release();
+    await pool.close();
+  });
+
+  await test('Query logging: captures params in log entries', async () => {
+    const logs: Array<{ sql: string; params?: unknown[] }> = [];
+    const pool = new ConnectionPool({
+      minSize: 1,
+      maxSize: 5,
+      queryLogger: (entry) => logs.push(entry),
+    });
+    await pool.initialize();
+
+    const conn = await pool.acquire();
+    await conn.query('SELECT * FROM users WHERE id = $1', ['user-123']);
+
+    assert(logs.length === 1, 'Should have 1 log entry');
+    assert(Array.isArray(logs[0].params), 'Params should be an array');
+    assert(logs[0].params![0] === 'user-123', 'Param value should match');
+
+    conn.release();
+    await pool.close();
+  });
+
   // ───── Summary ─────
 
   console.log(`\n${'─'.repeat(60)}`);
