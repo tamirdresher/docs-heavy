@@ -624,13 +624,16 @@ async function runTests() {
       );
     }
 
-    // findByIds is inherited from Repository<T> — tests batch IN-clause
-    // Note: uses in-memory simulation, but exercises the batch code path
+    // findByIds is inherited from Repository<T> — exercises the batch IN-clause path
     const ids = users.map((u) => u.id);
-    // Verify individual lookups work (batch optimization is in the SQL layer)
+    const found = await repo.findByIds(ids);
+    assert(Array.isArray(found), 'findByIds should return an array');
+    // Note: in-memory simulation may not return matching rows, but the
+    // method must not crash and must exercise the IN-clause code path.
+    // Verify individual lookups still work alongside batch
     for (const id of ids) {
-      const found = await repo.findById(id);
-      assert(found !== undefined, `Should find user ${id}`);
+      const individual = await repo.findById(id);
+      assert(individual !== undefined, `Should find user ${id}`);
     }
 
     repo.clear();
@@ -1008,11 +1011,12 @@ async function runTests() {
     });
 
     await repo.delete(user.id);
-    const byId = await repo.findById(user.id);
-    const byEmail = await repo.findByEmail('cache-delete@example.com');
-    // In-memory cache should no longer have this user
-    assert(byId === undefined || byId === byId, 'findById should not return stale cached user from memory map');
-    assert(byEmail === undefined || byEmail === byEmail, 'findByEmail should not return stale cached user from memory map');
+    // Verify in-memory cache was cleared — the user should not be
+    // returned from the in-memory maps that UserRepository maintains.
+    const cachedById = (repo as any).users.get(user.id);
+    const cachedByEmail = (repo as any).emailIndex.get('cache-delete@example.com');
+    assert(cachedById === undefined, 'In-memory users map should not contain deleted user');
+    assert(cachedByEmail === undefined, 'In-memory emailIndex should not contain deleted user email');
 
     repo.clear();
     await pool.close();
@@ -1043,6 +1047,93 @@ async function runTests() {
     // Allow microtick for deferred release
     await new Promise((r) => setTimeout(r, 10));
     assert(pool.idleCount === 1, 'Connection should be returned to pool');
+    await pool.close();
+  });
+
+  // ───── Round 4: Safety & Test Correctness ─────
+
+  console.log('\nRound 4 — Safety & test correctness:');
+
+  await test('UnitOfWork: getConnection rejects after commit', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const uow = new UnitOfWork(pool);
+    await uow.begin();
+    await uow.commit();
+
+    let threw = false;
+    try {
+      uow.getConnection();
+    } catch (e: any) {
+      threw = true;
+      assert(e.message.includes('already completed'), `Wrong error: ${e.message}`);
+    }
+    assert(threw, 'Should reject getConnection after commit');
+    await pool.close();
+  });
+
+  await test('UnitOfWork: getConnection rejects after rollback', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const uow = new UnitOfWork(pool);
+    await uow.begin();
+    await uow.rollback();
+
+    let threw = false;
+    try {
+      uow.getConnection();
+    } catch (e: any) {
+      threw = true;
+      assert(e.message.includes('already completed'), `Wrong error: ${e.message}`);
+    }
+    assert(threw, 'Should reject getConnection after rollback');
+    await pool.close();
+  });
+
+  await test('UnitOfWork: getRepository rejects after commit', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const uow = new UnitOfWork(pool);
+    await uow.begin();
+    await uow.commit();
+
+    let threw = false;
+    try {
+      uow.getRepository((_conn) => 'repo');
+    } catch (e: any) {
+      threw = true;
+      assert(e.message.includes('already completed'), `Wrong error: ${e.message}`);
+    }
+    assert(threw, 'Should reject getRepository after commit');
+    await pool.close();
+  });
+
+  await test('findByIds: returns empty array for empty input', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const repo = new UserRepository(pool);
+
+    const result = await repo.findByIds([]);
+    assert(Array.isArray(result), 'Should return array');
+    assert(result.length === 0, 'Should return empty array for empty ids');
+    await pool.close();
+  });
+
+  await test('findByIds: exercises batch IN-clause code path', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const repo = new UserRepository(pool);
+
+    const user = await repo.createUser({
+      email: 'batch-find@example.com',
+      passwordHash: 'hash',
+    });
+
+    // Call findByIds with a mix of existing and non-existing IDs
+    const result = await repo.findByIds([user.id, 'nonexistent-id']);
+    assert(Array.isArray(result), 'Should return array from batch query');
+
+    repo.clear();
     await pool.close();
   });
 
