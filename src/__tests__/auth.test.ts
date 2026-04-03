@@ -4,11 +4,12 @@
  * Covers:
  *  - JWT token generation, verification, and expiry
  *  - Password hashing and verification
- *  - Auth middleware (valid token, missing header, bad format, expired)
+ *  - Auth middleware (valid token, missing header, bad format, expired, blacklist)
  *  - Role-based access control
  *  - Auth route handlers (register, login, refresh, logout)
  *  - User model CRUD operations
  *  - Security: timing-safe comparison, token type enforcement
+ *  - Token blacklist and refresh token rotation
  */
 
 import { createJwtManager, type JwtPayload } from '../auth/jwt.js';
@@ -17,6 +18,7 @@ import { authMiddleware, type AuthRequest, type AuthResponse } from '../middlewa
 import { requireRole } from '../middleware/roles.js';
 import { UserStore } from '../models/user.js';
 import { createAuthRoutes } from '../routes/auth.js';
+import { TokenBlacklist } from '../auth/token-blacklist.js';
 
 // ── test helpers ────────────────────────────────────────────────────────
 
@@ -384,11 +386,13 @@ async function runTests() {
 
   const jwtMgr = createJwtManager({ secret: TEST_SECRET });
   const userStore = new UserStore();
-  const routes = createAuthRoutes({ userStore, jwtManager: jwtMgr });
+  const tokenBlacklist = new TokenBlacklist();
+  const routes = createAuthRoutes({ userStore, jwtManager: jwtMgr, tokenBlacklist });
 
   await test('register: creates account and returns tokens', async () => {
     userStore.clear();
-    const req = { body: { email: 'new@test.com', password: 'password123' }, headers: {} };
+    tokenBlacklist.clear();
+    const req = { body: { email: 'new@test.com', password: 'Password123' }, headers: {} };
     const res = mockRes();
     await routes.register(req as any, res);
     assert(res.statusCode === 201, `Should return 201, got ${res.statusCode}`);
@@ -398,7 +402,7 @@ async function runTests() {
   });
 
   await test('register: rejects invalid email', async () => {
-    const req = { body: { email: 'notanemail', password: 'password123' }, headers: {} };
+    const req = { body: { email: 'notanemail', password: 'Password123' }, headers: {} };
     const res = mockRes();
     await routes.register(req as any, res);
     assert(res.statusCode === 400, `Should return 400, got ${res.statusCode}`);
@@ -411,12 +415,27 @@ async function runTests() {
     assert(res.statusCode === 400, `Should return 400, got ${res.statusCode}`);
   });
 
+  await test('register: rejects password without uppercase', async () => {
+    const req = { body: { email: 'valid@test.com', password: 'password123' }, headers: {} };
+    const res = mockRes();
+    await routes.register(req as any, res);
+    assert(res.statusCode === 400, `Should return 400, got ${res.statusCode}`);
+  });
+
+  await test('register: rejects password without digit', async () => {
+    const req = { body: { email: 'valid@test.com', password: 'Passwordabc' }, headers: {} };
+    const res = mockRes();
+    await routes.register(req as any, res);
+    assert(res.statusCode === 400, `Should return 400, got ${res.statusCode}`);
+  });
+
   await test('register: rejects duplicate email', async () => {
     userStore.clear();
-    const req1 = { body: { email: 'dupe@test.com', password: 'password123' }, headers: {} };
+    tokenBlacklist.clear();
+    const req1 = { body: { email: 'dupe@test.com', password: 'Password123' }, headers: {} };
     await routes.register(req1 as any, mockRes());
 
-    const req2 = { body: { email: 'dupe@test.com', password: 'password456' }, headers: {} };
+    const req2 = { body: { email: 'dupe@test.com', password: 'Password456' }, headers: {} };
     const res = mockRes();
     await routes.register(req2 as any, res);
     assert(res.statusCode === 409, `Should return 409, got ${res.statusCode}`);
@@ -424,13 +443,14 @@ async function runTests() {
 
   await test('login: authenticates valid credentials', async () => {
     userStore.clear();
+    tokenBlacklist.clear();
     // Register first
     await routes.register(
-      { body: { email: 'login@test.com', password: 'password123' }, headers: {} } as any,
+      { body: { email: 'login@test.com', password: 'Password123' }, headers: {} } as any,
       mockRes(),
     );
 
-    const req = { body: { email: 'login@test.com', password: 'password123' }, headers: {} };
+    const req = { body: { email: 'login@test.com', password: 'Password123' }, headers: {} };
     const res = mockRes();
     await routes.login(req as any, res);
     assert(res.statusCode === 200, `Should return 200, got ${res.statusCode}`);
@@ -438,14 +458,14 @@ async function runTests() {
   });
 
   await test('login: rejects wrong password', async () => {
-    const req = { body: { email: 'login@test.com', password: 'wrongpassword' }, headers: {} };
+    const req = { body: { email: 'login@test.com', password: 'WrongPassword1' }, headers: {} };
     const res = mockRes();
     await routes.login(req as any, res);
     assert(res.statusCode === 401, `Should return 401, got ${res.statusCode}`);
   });
 
   await test('login: rejects unknown email', async () => {
-    const req = { body: { email: 'unknown@test.com', password: 'password123' }, headers: {} };
+    const req = { body: { email: 'unknown@test.com', password: 'Password123' }, headers: {} };
     const res = mockRes();
     await routes.login(req as any, res);
     assert(res.statusCode === 401, `Should return 401, got ${res.statusCode}`);
@@ -453,10 +473,11 @@ async function runTests() {
 
   await test('refresh: issues new tokens from valid refresh token', async () => {
     userStore.clear();
+    tokenBlacklist.clear();
     // Register to get tokens
     const regRes = mockRes();
     await routes.register(
-      { body: { email: 'ref@test.com', password: 'password123' }, headers: {} } as any,
+      { body: { email: 'ref@test.com', password: 'Password123' }, headers: {} } as any,
       regRes,
     );
     const refreshToken = (regRes.body as any).refreshToken;
@@ -468,11 +489,33 @@ async function runTests() {
     assert(typeof (res.body as any).accessToken === 'string', 'Should return new accessToken');
   });
 
-  await test('refresh: rejects access token as refresh token', async () => {
+  await test('refresh: rejects reuse of rotated refresh token', async () => {
     userStore.clear();
+    tokenBlacklist.clear();
     const regRes = mockRes();
     await routes.register(
-      { body: { email: 'ref2@test.com', password: 'password123' }, headers: {} } as any,
+      { body: { email: 'rot@test.com', password: 'Password123' }, headers: {} } as any,
+      regRes,
+    );
+    const refreshToken = (regRes.body as any).refreshToken;
+
+    // First refresh succeeds and blacklists the old token
+    const res1 = mockRes();
+    await routes.refresh({ body: { refreshToken }, headers: {} } as any, res1);
+    assert(res1.statusCode === 200, 'First refresh should succeed');
+
+    // Second use of the same refresh token should fail
+    const res2 = mockRes();
+    await routes.refresh({ body: { refreshToken }, headers: {} } as any, res2);
+    assert(res2.statusCode === 401, `Reused refresh token should return 401, got ${res2.statusCode}`);
+  });
+
+  await test('refresh: rejects access token as refresh token', async () => {
+    userStore.clear();
+    tokenBlacklist.clear();
+    const regRes = mockRes();
+    await routes.register(
+      { body: { email: 'ref2@test.com', password: 'Password123' }, headers: {} } as any,
       regRes,
     );
     const accessToken = (regRes.body as any).accessToken;
@@ -495,6 +538,44 @@ async function runTests() {
     const res = mockRes();
     routes.logout(req as any, res);
     assert(res.statusCode === 204, `Should return 204, got ${res.statusCode}`);
+  });
+
+  // ───── Token Blacklist Tests ─────
+
+  console.log('\nToken blacklist tests:');
+
+  await test('TokenBlacklist: add and has', () => {
+    const bl = new TokenBlacklist();
+    const futureExp = Math.floor(Date.now() / 1000) + 3600;
+    bl.add('token-abc', futureExp);
+    assert(bl.has('token-abc'), 'Should find blacklisted token');
+    assert(!bl.has('token-other'), 'Should not find unknown token');
+    bl.clear();
+  });
+
+  await test('TokenBlacklist: prunes expired entries', () => {
+    const bl = new TokenBlacklist();
+    // Add a token that already expired
+    bl.add('expired-tok', Math.floor(Date.now() / 1000) - 10);
+    assert(!bl.has('expired-tok'), 'Expired entry should be pruned');
+    assert(bl.size === 0, `Size should be 0, got ${bl.size}`);
+  });
+
+  await test('authMiddleware: rejects blacklisted token', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const bl = new TokenBlacklist();
+    const token = await mgr.generateAccessToken('user-1', 'user');
+    const payload = await mgr.verify(token);
+    bl.add(token, payload!.exp);
+
+    const mw = authMiddleware(mgr, bl);
+    const req: AuthRequest = { headers: { authorization: `Bearer ${token}` } };
+    const res = mockRes();
+    let nextCalled = false;
+
+    await mw(req, res, () => { nextCalled = true; });
+    assert(!nextCalled, 'next() should not be called for blacklisted token');
+    assert(res.statusCode === 401, `Should return 401, got ${res.statusCode}`);
   });
 
   console.log('\nAll auth tests passed!');
