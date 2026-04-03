@@ -176,8 +176,9 @@ export function createOrderRoutes(deps: OrderDependencies) {
     }
 
     if (!canAccessOrder(req.user, order.userId)) {
-      res.status(403).json({
-        error: { code: 'FORBIDDEN', message: 'You do not have permission to view this order' },
+      // Return 404 to prevent order ID enumeration (IDOR protection)
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Order not found' },
       });
       return;
     }
@@ -218,8 +219,16 @@ export function createOrderRoutes(deps: OrderDependencies) {
     }
 
     if (!canAccessOrder(req.user, order.userId)) {
-      res.status(403).json({
-        error: { code: 'FORBIDDEN', message: 'You do not have permission to modify this order' },
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Order not found' },
+      });
+      return;
+    }
+
+    // Cancelled orders cannot be modified
+    if (order.status === 'cancelled') {
+      res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'Cannot update a cancelled order' },
       });
       return;
     }
@@ -307,8 +316,8 @@ export function createOrderRoutes(deps: OrderDependencies) {
     }
 
     if (!canAccessOrder(req.user, order.userId)) {
-      res.status(403).json({
-        error: { code: 'FORBIDDEN', message: 'You do not have permission to delete this order' },
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Order not found' },
       });
       return;
     }
