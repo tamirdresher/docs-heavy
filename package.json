@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "echo \"Build docs OK\"",
-    "test": "npx tsx src/__tests__/auth.test.ts",
+    "test": "npx tsx src/__tests__/auth.test.ts && npx tsx src/__tests__/repository.test.ts",
     "lint": "echo \"Lint OK\"",
     "dev": "echo \"Dev server would start here\""
   }
