@@ -14,6 +14,14 @@
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import type { JwtPayload } from '../auth/jwt.js';
 
+/**
+ * Pre-computed dummy hash for timing-safe login.
+ * Used when the requested user doesn't exist so that password verification
+ * takes the same amount of time as for a real user, preventing user enumeration
+ * via timing side-channels.
+ */
+const DUMMY_HASH = '$scrypt$N=16384$r=8$p=1$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+
 export interface AuthRouteRequest {
   body: Record<string, unknown>;
   user?: JwtPayload;
@@ -124,7 +132,6 @@ export function createAuthRoutes(deps: AuthDependencies) {
     // Always run password verification to prevent timing-based user enumeration.
     // When the user doesn't exist we verify against a dummy hash so the
     // response time is indistinguishable from a real (but wrong) password.
-    const DUMMY_HASH = '$scrypt$N=16384$r=8$p=1$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     const valid = await verifyPassword(password, user?.passwordHash ?? DUMMY_HASH);
 
     if (!user || !valid) {

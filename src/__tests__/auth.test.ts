@@ -812,6 +812,85 @@ async function runTests() {
     assert(tokenBlacklist.size === 0, 'No token should be blacklisted');
   });
 
+  // ───── Polish review tests ─────
+
+  console.log('\nPolish review tests:');
+
+  await test('authMiddleware: accepts lowercase "bearer" scheme (RFC 7235)', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const token = await mgr.generateAccessToken('user-bearer', 'user');
+    const mw = authMiddleware(mgr);
+
+    const req: AuthRequest = { headers: { authorization: `bearer ${token}` } };
+    const res = mockRes();
+    let nextCalled = false;
+
+    await mw(req, res, () => { nextCalled = true; });
+    assert(nextCalled, 'next() should be called for lowercase bearer');
+    assert(req.user?.sub === 'user-bearer', 'Should attach user to request');
+  });
+
+  await test('authMiddleware: accepts mixed-case "BEARER" scheme (RFC 7235)', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const token = await mgr.generateAccessToken('user-upper', 'user');
+    const mw = authMiddleware(mgr);
+
+    const req: AuthRequest = { headers: { authorization: `BEARER ${token}` } };
+    const res = mockRes();
+    let nextCalled = false;
+
+    await mw(req, res, () => { nextCalled = true; });
+    assert(nextCalled, 'next() should be called for uppercase BEARER');
+    assert(req.user?.sub === 'user-upper', 'Should attach user to request');
+  });
+
+  await test('authMiddleware: accepts Authorization header with capital A', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const token = await mgr.generateAccessToken('user-cap', 'user');
+    const mw = authMiddleware(mgr);
+
+    const req: AuthRequest = { headers: { Authorization: `Bearer ${token}` } };
+    const res = mockRes();
+    let nextCalled = false;
+
+    await mw(req, res, () => { nextCalled = true; });
+    assert(nextCalled, 'next() should be called for capitalized Authorization header');
+    assert(req.user?.sub === 'user-cap', 'Should attach user to request');
+  });
+
+  await test('UserStore: generateId produces unique UUIDs', () => {
+    const store = new UserStore();
+    const u1 = store.create({ email: 'uuid1@test.com', passwordHash: 'h1' });
+    const u2 = store.create({ email: 'uuid2@test.com', passwordHash: 'h2' });
+    assert(u1.id !== u2.id, 'Generated IDs should be unique');
+    assert(u1.id.length === 36, `ID should be UUID format (36 chars), got ${u1.id.length}`);
+    store.clear();
+  });
+
+  await test('login: uses module-level DUMMY_HASH (not per-call allocation)', async () => {
+    userStore.clear();
+    tokenBlacklist.clear();
+    // This test verifies the timing-safe login still works correctly
+    // after moving DUMMY_HASH to module scope
+    const res1 = mockRes();
+    await routes.login(
+      { body: { email: 'nonexistent@test.com', password: 'Password123' }, headers: {} } as any,
+      res1,
+    );
+    assert(res1.statusCode === 401, `Should return 401, got ${res1.statusCode}`);
+
+    const res2 = mockRes();
+    await routes.login(
+      { body: { email: 'nonexistent2@test.com', password: 'AnotherPass1' }, headers: {} } as any,
+      res2,
+    );
+    assert(res2.statusCode === 401, `Should return 401, got ${res2.statusCode}`);
+    // Both should have identical error structure
+    const body1 = (res1.body as any).error;
+    const body2 = (res2.body as any).error;
+    assert(body1.code === body2.code, 'Error codes should match for non-existent users');
+  });
+
   console.log('\nAll auth tests passed!');
 }
 

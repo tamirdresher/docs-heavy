@@ -55,7 +55,8 @@ export class TokenBlacklist {
    */
   private prune(): void {
     const now = Math.floor(Date.now() / 1000);
-    for (const [tok, exp] of this.entries) {
+    const entries = Array.from(this.entries.entries());
+    for (const [tok, exp] of entries) {
       if (exp <= now) {
         this.entries.delete(tok);
       }

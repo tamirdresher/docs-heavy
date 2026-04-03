@@ -7,6 +7,8 @@
  * The password field stores a scrypt hash — never plaintext.
  */
 
+import { randomUUID } from 'node:crypto';
+
 export interface User {
   id: string;
   email: string;
@@ -87,6 +89,6 @@ export class UserStore {
   }
 
   private generateId(): string {
-    return crypto.randomUUID();
+    return randomUUID();
   }
 }

@@ -62,9 +62,9 @@ export function authMiddleware(jwtManager: JwtVerifier, blacklist?: TokenBlackli
       return;
     }
 
-    // Expect "Bearer <token>"
+    // Expect "Bearer <token>" (scheme is case-insensitive per RFC 7235)
     const parts = authHeader.split(' ');
-    if (parts.length !== 2 || parts[0] !== 'Bearer') {
+    if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') {
       res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid authorization format. Expected: Bearer <token>' } });
       return;
     }
