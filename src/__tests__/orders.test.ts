@@ -447,6 +447,20 @@ async function runTests() {
     assert(res.statusCode === 200, `expected 200, got ${res.statusCode}`);
   });
 
+  await test('PUT /api/orders/:id: updates both items and status (200)', () => {
+    const orderStore = new OrderStore();
+    const order = orderStore.create({ userId: 'user-1', items: VALID_ITEMS });
+    const routes = createOrderRoutes({ orderStore });
+    const newItems = [{ productId: 'p3', quantity: 2, unitPrice: 50 }];
+    const req: any = { body: { items: newItems, status: 'confirmed' }, params: { id: order.id }, query: {}, user: makeUser() };
+    const res = mockRes();
+    routes.updateOrder(req, res);
+    assert(res.statusCode === 200, `expected 200, got ${res.statusCode}`);
+    assert(res.body.data.status === 'confirmed', 'status should be confirmed');
+    assert(res.body.data.totalAmount === 100, 'totalAmount should be recalculated');
+    assert(res.body.data.items.length === 1, 'should have 1 item');
+  });
+
   await test('PUT /api/orders/:id: returns 404 for non-existent', () => {
     const orderStore = new OrderStore();
     const routes = createOrderRoutes({ orderStore });

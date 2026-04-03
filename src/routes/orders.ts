@@ -14,7 +14,7 @@
  */
 
 import type { JwtPayload } from '../auth/jwt.js';
-import type { OrderStore, OrderItem, OrderStatus } from '../models/order.js';
+import type { Order, OrderStore, OrderItem, OrderStatus } from '../models/order.js';
 
 export interface OrderRouteRequest {
   body: Record<string, unknown>;
@@ -258,7 +258,7 @@ export function createOrderRoutes(deps: OrderDependencies) {
       return;
     }
 
-    const changes: Partial<Pick<import('../models/order.js').Order, 'items' | 'status'>> = {};
+    const changes: Partial<Pick<Order, 'items' | 'status'>> = {};
     if (items !== undefined) changes.items = items as OrderItem[];
     if (status !== undefined) changes.status = status as OrderStatus;
 
