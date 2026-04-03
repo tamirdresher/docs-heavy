@@ -1,0 +1,45 @@
+{
+  "timestamp": "2026-04-03T11:22:00Z",
+  "issue": "Review PR adding new API endpoints",
+  "pr": 18,
+  "branch": "feature/order-management-endpoints",
+  "observations": [
+    {
+      "type": "feature",
+      "summary": "Added full CRUD endpoints for order management",
+      "detail": "Implemented five REST endpoints (POST create, GET list, GET by ID, PUT update, DELETE soft-delete) following existing API conventions: { data: T, meta: {...} } response envelope, { error: { code, message } } error format, cursor-based pagination (?cursor=X&limit=20), and soft-delete via deletedAt timestamp. The OrderStore model uses in-memory storage consistent with the existing UserStore pattern.",
+      "confidence": "high"
+    },
+    {
+      "type": "convention",
+      "summary": "Response envelope differs between auth routes and new order routes",
+      "detail": "Existing auth routes return raw objects (e.g., { user, accessToken, refreshToken }) without a data envelope. The issue specification requires { data: T, meta: {...} } envelope matching the documented /api/products convention. New order routes follow the products convention, but this means the API is inconsistent across auth vs. resource endpoints. Future work should consider aligning auth endpoints to use the same envelope.",
+      "confidence": "high"
+    },
+    {
+      "type": "authorization",
+      "summary": "Owner-or-admin authorization pattern implemented for all mutating endpoints",
+      "detail": "GET/PUT/DELETE endpoints enforce that only the order owner (matched via req.user.sub === order.userId) or an admin (req.user.role === 'admin') can access the order. GET /api/orders list endpoint automatically scopes to user's own orders for non-admin users. This prevents information disclosure without requiring explicit filtering.",
+      "confidence": "high"
+    },
+    {
+      "type": "testing",
+      "summary": "44 tests covering all endpoints with happy-path and error cases",
+      "detail": "Tests cover: 14 model tests (create, findById, list with pagination and userId filter, update, soft-delete, clear), 5 create route tests (success, empty items, missing items, invalid fields, unauthenticated), 5 list tests (user/admin visibility, pagination, invalid limit, unauthenticated), 5 get tests (owner, admin, 404, 403, 401), 8 update tests (items, status, admin, 404, 403, invalid status, empty body, 401), 6 delete tests (soft-delete, admin, 404, 403, 401, double-delete), 2 integration tests (soft-delete exclusion from list and update).",
+      "confidence": "high"
+    },
+    {
+      "type": "documentation",
+      "summary": "Updated orders API documentation with full endpoint reference",
+      "detail": "Expanded docs/api/orders.md from a stub listing to comprehensive documentation including request/response examples, authentication and authorization details, valid status values, pagination parameters, error codes table, and soft-delete behavior. Added the missing DELETE endpoint that was not in the original stub.",
+      "confidence": "high"
+    }
+  ],
+  "verdict": "feature_implemented",
+  "tests": {
+    "total": 44,
+    "new": 44,
+    "passing": 44,
+    "failing": 0
+  }
+}
