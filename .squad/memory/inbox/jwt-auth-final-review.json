@@ -1,0 +1,31 @@
+{
+  "session": "jwt-auth-final-review",
+  "timestamp": "2026-04-03T02:04:00Z",
+  "issue": "Review PR adding authentication",
+  "observations": [
+    {
+      "type": "decision",
+      "detail": "Auth middleware now stores the raw Bearer token on req.token (alongside req.user) so downstream handlers like logout can access the original token string without re-parsing the Authorization header. This eliminates fragile '(req as any).headers' casts and prevents silent failures in token blacklisting."
+    },
+    {
+      "type": "decision",
+      "detail": "Simplified logout handler to use req.token directly instead of re-parsing the Authorization header. The previous implementation used (req as any).headers?.['authorization'] with nested conditionals that could silently skip blacklisting if any step failed. Now the blacklist is guaranteed to receive the token when auth middleware ran."
+    },
+    {
+      "type": "decision",
+      "detail": "Strengthened email validation with RFC 5321 max length check (254 chars) and minimum 2-character TLD requirement. The previous regex '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$' accepted single-char TLDs like user@example.c and had no length limit, enabling potential abuse via oversized inputs."
+    },
+    {
+      "type": "verification",
+      "detail": "All 58 tests pass (5 new). New tests cover: logout blacklists token when req.token is set, logout handles missing req.token gracefully, auth middleware propagates raw token to req.token, email >254 chars rejected, single-char TLD rejected. PR #9 opened against feature/jwt-authentication."
+    },
+    {
+      "type": "context",
+      "detail": "Remaining items for production readiness: (1) Rate limiting on /login, /register, /refresh endpoints — integrate with existing sliding-window rate limiter from feature/rate-limiting-middleware branch, (2) Redis-backed token blacklist for multi-server deployments, (3) JWT ID (jti) claim for individual token tracking/revocation, (4) Key ID (kid) header for key rotation support."
+    },
+    {
+      "type": "architecture",
+      "detail": "The AuthRequest interface in middleware/auth.ts and AuthRouteRequest in routes/auth.ts both gained a 'token?: string' field. These two interfaces are separate but parallel — a future refactor could unify them or have AuthRouteRequest extend AuthRequest to avoid drift."
+    }
+  ]
+}
