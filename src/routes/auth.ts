@@ -17,17 +17,21 @@ import type { JwtPayload } from '../auth/jwt.js';
 export interface AuthRouteRequest {
   body: Record<string, unknown>;
   user?: JwtPayload;
+  /** Raw Bearer token string, set by auth middleware. */
+  token?: string;
   [key: string]: unknown;
 }
 
 export interface AuthRouteResponse {
   status(code: number): AuthRouteResponse;
   json(body: unknown): void;
+  end(): void;
 }
 
 export interface AuthDependencies {
   userStore: {
     findByEmail(email: string): { id: string; email: string; passwordHash: string; role: 'admin' | 'user' } | undefined;
+    findById(id: string): { id: string; email: string; passwordHash: string; role: 'admin' | 'user' } | undefined;
     create(data: { email: string; passwordHash: string; role?: 'admin' | 'user' }): { id: string; email: string; role: 'admin' | 'user' };
     toPublic(user: any): Record<string, unknown>;
   };
@@ -35,22 +39,33 @@ export interface AuthDependencies {
     generateTokenPair(userId: string, role: 'admin' | 'user'): Promise<{ accessToken: string; refreshToken: string }>;
     verify(token: string): Promise<JwtPayload | null>;
   };
+  tokenBlacklist: {
+    add(token: string, expiresAt: number): void;
+    has(token: string): boolean;
+  };
 }
 
-// Email validation: basic check for presence and @ symbol
+// Email validation: RFC 5321 max length, requires @ and 2+ char TLD
 function isValidEmail(email: unknown): email is string {
-  return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if (typeof email !== 'string') return false;
+  if (email.length > 254) return false; // RFC 5321 max
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 }
 
 function isValidPassword(password: unknown): password is string {
-  return typeof password === 'string' && password.length >= 8;
+  if (typeof password !== 'string' || password.length < 8 || password.length > 128) return false;
+  // Require at least one uppercase, one lowercase, and one digit
+  if (!/[A-Z]/.test(password)) return false;
+  if (!/[a-z]/.test(password)) return false;
+  if (!/[0-9]/.test(password)) return false;
+  return true;
 }
 
 /**
  * Create auth route handlers with injected dependencies.
  */
 export function createAuthRoutes(deps: AuthDependencies) {
-  const { userStore, jwtManager } = deps;
+  const { userStore, jwtManager, tokenBlacklist } = deps;
 
   /**
    * POST /api/auth/register
@@ -67,7 +82,7 @@ export function createAuthRoutes(deps: AuthDependencies) {
 
     if (!isValidPassword(password)) {
       res.status(400).json({
-        error: { code: 'VALIDATION_ERROR', message: 'Password must be at least 8 characters' },
+        error: { code: 'VALIDATION_ERROR', message: 'Password must be at least 8 characters with uppercase, lowercase, and a digit' },
       });
       return;
     }
@@ -105,16 +120,14 @@ export function createAuthRoutes(deps: AuthDependencies) {
     }
 
     const user = userStore.findByEmail(email);
-    if (!user) {
-      // Use generic message to prevent user enumeration
-      res.status(401).json({
-        error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' },
-      });
-      return;
-    }
 
-    const valid = await verifyPassword(password, user.passwordHash);
-    if (!valid) {
+    // Always run password verification to prevent timing-based user enumeration.
+    // When the user doesn't exist we verify against a dummy hash so the
+    // response time is indistinguishable from a real (but wrong) password.
+    const DUMMY_HASH = '$scrypt$N=16384$r=8$p=1$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const valid = await verifyPassword(password, user?.passwordHash ?? DUMMY_HASH);
+
+    if (!user || !valid) {
       res.status(401).json({
         error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' },
       });
@@ -130,6 +143,10 @@ export function createAuthRoutes(deps: AuthDependencies) {
 
   /**
    * POST /api/auth/refresh
+   *
+   * Implements refresh token rotation: the old refresh token is
+   * blacklisted after issuing new tokens. A stolen refresh token
+   * can only be used once.
    */
   async function refresh(req: AuthRouteRequest, res: AuthRouteResponse): Promise<void> {
     const { refreshToken } = req.body;
@@ -137,6 +154,14 @@ export function createAuthRoutes(deps: AuthDependencies) {
     if (typeof refreshToken !== 'string') {
       res.status(400).json({
         error: { code: 'VALIDATION_ERROR', message: 'refreshToken is required' },
+      });
+      return;
+    }
+
+    // Reject blacklisted tokens (already rotated)
+    if (tokenBlacklist.has(refreshToken)) {
+      res.status(401).json({
+        error: { code: 'INVALID_TOKEN', message: 'Refresh token has already been used' },
       });
       return;
     }
@@ -149,18 +174,35 @@ export function createAuthRoutes(deps: AuthDependencies) {
       return;
     }
 
-    const tokens = await jwtManager.generateTokenPair(payload.sub, payload.role);
+    // Verify the user still exists and hasn't been deleted/suspended
+    const user = userStore.findById(payload.sub);
+    if (!user) {
+      res.status(401).json({
+        error: { code: 'INVALID_TOKEN', message: 'Invalid or expired refresh token' },
+      });
+      return;
+    }
+
+    // Blacklist the old refresh token (rotation)
+    tokenBlacklist.add(refreshToken, payload.exp);
+
+    // Use the user's current role (may have changed since the token was issued)
+    const tokens = await jwtManager.generateTokenPair(user.id, user.role);
     res.status(200).json(tokens);
   }
 
   /**
    * POST /api/auth/logout
    *
-   * Note: With stateless JWTs, true logout requires a token
-   * blacklist or short TTLs. This is a placeholder.
+   * Blacklists the access token so it can no longer be used,
+   * even before its natural expiration. Requires the raw token
+   * to be set on the request by auth middleware (req.token).
    */
-  function logout(_req: AuthRouteRequest, res: AuthRouteResponse): void {
-    res.status(204).json({});
+  function logout(req: AuthRouteRequest, res: AuthRouteResponse): void {
+    if (req.user && req.token) {
+      tokenBlacklist.add(req.token, req.user.exp);
+    }
+    res.status(204).end();
   }
 
   return { register, login, refresh, logout };
