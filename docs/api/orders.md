@@ -17,7 +17,7 @@ All endpoints require a valid Bearer token in the Authorization header.
 ## Authorization
 - **Create**: Any authenticated user
 - **List**: Users see their own orders; admins see all
-- **Get/Update/Delete**: Only the order owner or an admin
+- **Get/Update/Delete**: Only the order owner or an admin (returns 404 for non-owners to prevent order ID enumeration)
 
 ## Request/Response Format
 
@@ -92,6 +92,10 @@ Authorization: Bearer <token>
 ```
 
 Valid statuses: `pending`, `confirmed`, `shipped`, `delivered`, `cancelled`.
+
+> **Note:** `totalAmount` is automatically calculated from items (rounded to 2 decimal places) and cannot be set directly.
+
+> **Note:** Cancelled orders cannot be updated. Attempting to modify a cancelled order returns 400.
 
 ### Delete Order (Soft-delete)
 ```http

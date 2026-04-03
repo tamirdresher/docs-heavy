@@ -87,7 +87,7 @@ async function runTests() {
     assert(order.userId === 'u1', 'should have userId');
     assert(order.status === 'pending', 'default status should be pending');
     assert(order.deletedAt === null, 'deletedAt should be null');
-    assert(order.totalAmount === 2 * 10.99 + 1 * 24.50, 'totalAmount should be calculated');
+    assert(order.totalAmount === 46.48, 'totalAmount should be calculated');
     assert(order.items.length === 2, 'should have 2 items');
   });
 
@@ -256,6 +256,32 @@ async function runTests() {
     assert(res.statusCode === 400, `expected 400, got ${res.statusCode}`);
   });
 
+  await test('POST /api/orders: rejects NaN unitPrice (400)', () => {
+    const orderStore = new OrderStore();
+    const routes = createOrderRoutes({ orderStore });
+    const req: any = {
+      body: { items: [{ productId: 'p1', quantity: 1, unitPrice: NaN }] },
+      params: {}, query: {}, user: makeUser(),
+    };
+    const res = mockRes();
+    routes.createOrder(req, res);
+    assert(res.statusCode === 400, `expected 400, got ${res.statusCode}`);
+    assert(res.body.error.code === 'VALIDATION_ERROR', 'should be VALIDATION_ERROR');
+  });
+
+  await test('POST /api/orders: rejects Infinity unitPrice (400)', () => {
+    const orderStore = new OrderStore();
+    const routes = createOrderRoutes({ orderStore });
+    const req: any = {
+      body: { items: [{ productId: 'p1', quantity: 1, unitPrice: Infinity }] },
+      params: {}, query: {}, user: makeUser(),
+    };
+    const res = mockRes();
+    routes.createOrder(req, res);
+    assert(res.statusCode === 400, `expected 400, got ${res.statusCode}`);
+    assert(res.body.error.code === 'VALIDATION_ERROR', 'should be VALIDATION_ERROR');
+  });
+
   await test('POST /api/orders: rejects unauthenticated (401)', () => {
     const orderStore = new OrderStore();
     const routes = createOrderRoutes({ orderStore });
@@ -363,15 +389,15 @@ async function runTests() {
     assert(res.body.error.code === 'NOT_FOUND', 'should be NOT_FOUND');
   });
 
-  await test('GET /api/orders/:id: returns 403 for non-owner', () => {
+  await test('GET /api/orders/:id: returns 404 for non-owner (IDOR protection)', () => {
     const orderStore = new OrderStore();
     const order = orderStore.create({ userId: 'other-user', items: VALID_ITEMS });
     const routes = createOrderRoutes({ orderStore });
     const req: any = { body: {}, params: { id: order.id }, query: {}, user: makeUser() };
     const res = mockRes();
     routes.getOrder(req, res);
-    assert(res.statusCode === 403, `expected 403, got ${res.statusCode}`);
-    assert(res.body.error.code === 'FORBIDDEN', 'should be FORBIDDEN');
+    assert(res.statusCode === 404, `expected 404, got ${res.statusCode}`);
+    assert(res.body.error.code === 'NOT_FOUND', 'should be NOT_FOUND to prevent enumeration');
   });
 
   await test('GET /api/orders/:id: unauthenticated returns 401', () => {
@@ -421,6 +447,20 @@ async function runTests() {
     assert(res.statusCode === 200, `expected 200, got ${res.statusCode}`);
   });
 
+  await test('PUT /api/orders/:id: updates both items and status (200)', () => {
+    const orderStore = new OrderStore();
+    const order = orderStore.create({ userId: 'user-1', items: VALID_ITEMS });
+    const routes = createOrderRoutes({ orderStore });
+    const newItems = [{ productId: 'p3', quantity: 2, unitPrice: 50 }];
+    const req: any = { body: { items: newItems, status: 'confirmed' }, params: { id: order.id }, query: {}, user: makeUser() };
+    const res = mockRes();
+    routes.updateOrder(req, res);
+    assert(res.statusCode === 200, `expected 200, got ${res.statusCode}`);
+    assert(res.body.data.status === 'confirmed', 'status should be confirmed');
+    assert(res.body.data.totalAmount === 100, 'totalAmount should be recalculated');
+    assert(res.body.data.items.length === 1, 'should have 1 item');
+  });
+
   await test('PUT /api/orders/:id: returns 404 for non-existent', () => {
     const orderStore = new OrderStore();
     const routes = createOrderRoutes({ orderStore });
@@ -430,14 +470,14 @@ async function runTests() {
     assert(res.statusCode === 404, `expected 404, got ${res.statusCode}`);
   });
 
-  await test('PUT /api/orders/:id: returns 403 for non-owner', () => {
+  await test('PUT /api/orders/:id: returns 404 for non-owner (IDOR protection)', () => {
     const orderStore = new OrderStore();
     const order = orderStore.create({ userId: 'other-user', items: VALID_ITEMS });
     const routes = createOrderRoutes({ orderStore });
     const req: any = { body: { status: 'confirmed' }, params: { id: order.id }, query: {}, user: makeUser() };
     const res = mockRes();
     routes.updateOrder(req, res);
-    assert(res.statusCode === 403, `expected 403, got ${res.statusCode}`);
+    assert(res.statusCode === 404, `expected 404, got ${res.statusCode}`);
   });
 
   await test('PUT /api/orders/:id: rejects invalid status (400)', () => {
@@ -510,14 +550,14 @@ async function runTests() {
     assert(res.statusCode === 404, `expected 404, got ${res.statusCode}`);
   });
 
-  await test('DELETE /api/orders/:id: returns 403 for non-owner', () => {
+  await test('DELETE /api/orders/:id: returns 404 for non-owner (IDOR protection)', () => {
     const orderStore = new OrderStore();
     const order = orderStore.create({ userId: 'other-user', items: VALID_ITEMS });
     const routes = createOrderRoutes({ orderStore });
     const req: any = { body: {}, params: { id: order.id }, query: {}, user: makeUser() };
     const res = mockRes();
     routes.deleteOrder(req, res);
-    assert(res.statusCode === 403, `expected 403, got ${res.statusCode}`);
+    assert(res.statusCode === 404, `expected 404, got ${res.statusCode}`);
   });
 
   await test('DELETE /api/orders/:id: unauthenticated returns 401', () => {
@@ -569,6 +609,109 @@ async function runTests() {
     const res = mockRes();
     routes.updateOrder(req, res);
     assert(res.statusCode === 404, 'should return 404 for soft-deleted');
+  });
+
+  // ───── Security & business logic tests ─────
+
+  console.log('\nSecurity & business logic tests:');
+
+  await test('PUT /api/orders/:id: rejects update to cancelled order (400)', () => {
+    const orderStore = new OrderStore();
+    const order = orderStore.create({ userId: 'user-1', items: VALID_ITEMS });
+    orderStore.update(order.id, { status: 'cancelled' });
+    const routes = createOrderRoutes({ orderStore });
+    const req: any = { body: { status: 'pending' }, params: { id: order.id }, query: {}, user: makeUser() };
+    const res = mockRes();
+    routes.updateOrder(req, res);
+    assert(res.statusCode === 400, `expected 400, got ${res.statusCode}`);
+    assert(res.body.error.code === 'VALIDATION_ERROR', 'should be VALIDATION_ERROR');
+    assert(res.body.error.message.includes('cancelled'), 'message should mention cancelled');
+  });
+
+  await test('PUT /api/orders/:id: rejects item update on cancelled order (400)', () => {
+    const orderStore = new OrderStore();
+    const order = orderStore.create({ userId: 'user-1', items: VALID_ITEMS });
+    orderStore.update(order.id, { status: 'cancelled' });
+    const routes = createOrderRoutes({ orderStore });
+    const newItems = [{ productId: 'p3', quantity: 1, unitPrice: 50 }];
+    const req: any = { body: { items: newItems }, params: { id: order.id }, query: {}, user: makeUser() };
+    const res = mockRes();
+    routes.updateOrder(req, res);
+    assert(res.statusCode === 400, `expected 400, got ${res.statusCode}`);
+  });
+
+  await test('Non-owner cannot distinguish between non-existent and forbidden orders', () => {
+    const orderStore = new OrderStore();
+    const order = orderStore.create({ userId: 'other-user', items: VALID_ITEMS });
+    const routes = createOrderRoutes({ orderStore });
+    // Try to access another user's order
+    const reqForbidden: any = { body: {}, params: { id: order.id }, query: {}, user: makeUser() };
+    const resForbidden = mockRes();
+    routes.getOrder(reqForbidden, resForbidden);
+    // Try to access non-existent order
+    const reqNotFound: any = { body: {}, params: { id: 'non-existent' }, query: {}, user: makeUser() };
+    const resNotFound = mockRes();
+    routes.getOrder(reqNotFound, resNotFound);
+    // Both should return identical 404 responses
+    assert(resForbidden.statusCode === resNotFound.statusCode, 'status codes should match');
+    assert(resForbidden.body.error.code === resNotFound.body.error.code, 'error codes should match');
+    assert(resForbidden.body.error.message === resNotFound.body.error.message, 'error messages should match');
+  });
+
+  // ───── Floating-point & edge-case tests ─────
+
+  console.log('\nFloating-point & edge-case tests:');
+
+  await test('totalAmount rounds to 2 decimal places', () => {
+    const orderStore = new OrderStore();
+    // 0.1 + 0.2 = 0.30000000000000004 without rounding
+    const order = orderStore.create({
+      userId: 'u1',
+      items: [
+        { productId: 'p1', quantity: 1, unitPrice: 0.1 },
+        { productId: 'p2', quantity: 1, unitPrice: 0.2 },
+      ],
+    });
+    assert(order.totalAmount === 0.3, `expected 0.3, got ${order.totalAmount}`);
+  });
+
+  await test('totalAmount rounds correctly on update', () => {
+    const orderStore = new OrderStore();
+    const order = orderStore.create({ userId: 'u1', items: VALID_ITEMS });
+    const updated = orderStore.update(order.id, {
+      items: [
+        { productId: 'p1', quantity: 3, unitPrice: 0.1 },
+        { productId: 'p2', quantity: 7, unitPrice: 0.2 },
+      ],
+    });
+    // 3*0.1 + 7*0.2 = 0.3 + 1.4 = 1.7
+    assert(updated!.totalAmount === 1.7, `expected 1.7, got ${updated!.totalAmount}`);
+  });
+
+  await test('POST /api/orders: rejects NaN quantity (400)', () => {
+    const orderStore = new OrderStore();
+    const routes = createOrderRoutes({ orderStore });
+    const req: any = {
+      body: { items: [{ productId: 'p1', quantity: NaN, unitPrice: 10 }] },
+      params: {}, query: {}, user: makeUser(),
+    };
+    const res = mockRes();
+    routes.createOrder(req, res);
+    assert(res.statusCode === 400, `expected 400, got ${res.statusCode}`);
+    assert(res.body.error.code === 'VALIDATION_ERROR', 'should be VALIDATION_ERROR');
+  });
+
+  await test('POST /api/orders: rejects fractional quantity (400)', () => {
+    const orderStore = new OrderStore();
+    const routes = createOrderRoutes({ orderStore });
+    const req: any = {
+      body: { items: [{ productId: 'p1', quantity: 1.5, unitPrice: 10 }] },
+      params: {}, query: {}, user: makeUser(),
+    };
+    const res = mockRes();
+    routes.createOrder(req, res);
+    assert(res.statusCode === 400, `expected 400, got ${res.statusCode}`);
+    assert(res.body.error.code === 'VALIDATION_ERROR', 'should be VALIDATION_ERROR');
   });
 
   console.log('\nAll order tests completed.');

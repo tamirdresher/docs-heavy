@@ -11,6 +11,15 @@ import { randomUUID } from 'node:crypto';
 
 export type OrderStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
 
+/**
+ * Calculate the total amount for a list of order items,
+ * rounded to 2 decimal places to avoid floating-point artifacts.
+ */
+export function calculateTotalAmount(items: OrderItem[]): number {
+  const raw = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  return Math.round(raw * 100) / 100;
+}
+
 export interface OrderItem {
   productId: string;
   quantity: number;
@@ -48,10 +57,7 @@ export class OrderStore {
   }): Order {
     const id = this.generateId();
     const now = new Date().toISOString();
-    const totalAmount = data.items.reduce(
-      (sum, item) => sum + item.quantity * item.unitPrice,
-      0,
-    );
+    const totalAmount = calculateTotalAmount(data.items);
 
     const order: Order = {
       id,
@@ -128,10 +134,7 @@ export class OrderStore {
 
     if (changes.items) {
       order.items = changes.items;
-      order.totalAmount = changes.items.reduce(
-        (sum, item) => sum + item.quantity * item.unitPrice,
-        0,
-      );
+      order.totalAmount = calculateTotalAmount(changes.items);
     }
     if (changes.status !== undefined) {
       order.status = changes.status;

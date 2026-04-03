@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-04-03T11:44:00Z",
+  "issue": "Review PR adding new API endpoints",
+  "pr": 20,
+  "branch": "review/order-management-review-2",
+  "observations": [
+    {
+      "type": "bug",
+      "summary": "totalAmount had floating-point precision issues",
+      "detail": "The totalAmount calculation (sum of quantity * unitPrice) was stored as raw floating-point without rounding, which can produce artifacts like 0.1 + 0.2 = 0.30000000000000004. Extracted a shared calculateTotalAmount() helper that rounds to 2 decimal places via Math.round(x * 100) / 100. This also eliminates the duplicated calculation logic between create() and update().",
+      "confidence": "high"
+    },
+    {
+      "type": "code-quality",
+      "summary": "Extracted calculateTotalAmount helper to eliminate DRY violation",
+      "detail": "The totalAmount reduce calculation was duplicated in OrderStore.create() and OrderStore.update(). Extracted into a single exported calculateTotalAmount(items) function in order.ts, used by both methods. This ensures consistent calculation logic and makes it easier to change the rounding strategy in the future.",
+      "confidence": "high"
+    },
+    {
+      "type": "testing",
+      "summary": "Added 4 new edge-case tests bringing total to 51",
+      "detail": "Added tests for: (1) totalAmount rounds to 2 decimal places on create (0.1 + 0.2 = 0.3), (2) totalAmount rounds correctly on update, (3) NaN quantity rejection, (4) fractional quantity rejection (1.5). These verify the rounding fix and confirm that Number.isInteger() already guards against non-integer quantities.",
+      "confidence": "high"
+    },
+    {
+      "type": "convention",
+      "summary": "Currency amounts should always be rounded to 2 decimal places",
+      "detail": "Any monetary calculation in this API (totalAmount, unitPrice arithmetic) should use Math.round(x * 100) / 100 to prevent floating-point precision issues. This convention is now documented in docs/api/orders.md and enforced by the calculateTotalAmount helper.",
+      "confidence": "high"
+    }
+  ],
+  "verdict": "review_complete_with_fixes",
+  "tests": {
+    "total": 51,
+    "new": 4,
+    "passing": 51,
+    "failing": 0
+  }
+}
