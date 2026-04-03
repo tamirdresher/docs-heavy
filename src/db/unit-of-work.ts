@@ -60,11 +60,11 @@ export class UnitOfWork {
    * @param factory - A function that creates the repository given a connection.
    */
   getRepository<T>(factory: RepositoryFactory<T>): T {
-    if (!this.connection) {
-      throw new Error('UnitOfWork not started — call begin() first');
-    }
     if (this.committed || this.rolledBack) {
       throw new Error('UnitOfWork already completed — connection has been released');
+    }
+    if (!this.connection) {
+      throw new Error('UnitOfWork not started — call begin() first');
     }
     return factory(this.connection);
   }
@@ -73,17 +73,23 @@ export class UnitOfWork {
    * Get the underlying connection (for repositories that need direct access).
    */
   getConnection(): DatabaseConnection {
-    if (!this.connection) {
-      throw new Error('UnitOfWork not started — call begin() first');
-    }
     if (this.committed || this.rolledBack) {
       throw new Error('UnitOfWork already completed — connection has been released');
+    }
+    if (!this.connection) {
+      throw new Error('UnitOfWork not started — call begin() first');
     }
     return this.connection;
   }
 
   /**
    * Commit the transaction.
+   *
+   * If the underlying commit() throws (e.g., network error in a real
+   * driver), the UoW is marked as rolled-back and the connection is
+   * released. This prevents the UoW from appearing "active" with a
+   * released connection — a state that would let callers issue queries
+   * on a connection that may already be reused by another consumer.
    */
   async commit(): Promise<void> {
     if (!this.connection) throw new Error('UnitOfWork not started');
@@ -93,24 +99,35 @@ export class UnitOfWork {
     try {
       await this.connection.commit();
       this.committed = true;
+    } catch (err) {
+      // Commit failed — mark as rolled back so isActive returns false
+      this.rolledBack = true;
+      throw err;
     } finally {
       this.connection.release();
+      this.connection = null;
     }
   }
 
   /**
    * Rollback the transaction.
+   *
+   * Always marks the UoW as rolled-back and releases the connection,
+   * even if the underlying rollback() call throws (e.g., connection
+   * already closed). This ensures the UoW never appears "active"
+   * after a rollback attempt.
    */
   async rollback(): Promise<void> {
-    if (!this.connection) throw new Error('UnitOfWork not started');
-    if (this.committed) throw new Error('Already committed');
     if (this.rolledBack) return; // Idempotent rollback
+    if (this.committed) throw new Error('Already committed');
+    if (!this.connection) throw new Error('UnitOfWork not started');
 
     try {
       await this.connection.rollback();
-      this.rolledBack = true;
     } finally {
+      this.rolledBack = true;
       this.connection.release();
+      this.connection = null;
     }
   }
 
