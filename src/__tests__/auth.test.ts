@@ -660,6 +660,67 @@ async function runTests() {
     assert(!msg.includes('admin'), `Error message should not contain role names, got: ${msg}`);
   });
 
+  // ───── Final review tests ─────
+
+  console.log('\nFinal review tests:');
+
+  await test('logout: blacklists token when req.token is set', async () => {
+    userStore.clear();
+    tokenBlacklist.clear();
+    const regRes = mockRes();
+    await routes.register(
+      { body: { email: 'logoutbl@test.com', password: 'Password123' }, headers: {} } as any,
+      regRes,
+    );
+    const accessToken = (regRes.body as any).accessToken;
+    const payload = await jwtMgr.verify(accessToken);
+
+    // Simulate what auth middleware does: set user and token on request
+    const req = { body: {}, headers: {}, user: payload, token: accessToken };
+    const res = mockRes();
+    routes.logout(req as any, res);
+    assert(res.statusCode === 204, `Should return 204, got ${res.statusCode}`);
+    assert(tokenBlacklist.has(accessToken), 'Token should be blacklisted after logout');
+  });
+
+  await test('logout: does not blacklist when req.token is missing', () => {
+    tokenBlacklist.clear();
+    const req = { body: {}, headers: {}, user: { sub: 'u1', role: 'user' as const, iat: 0, exp: 999999999, type: 'access' as const } };
+    const res = mockRes();
+    routes.logout(req as any, res);
+    assert(res.statusCode === 204, `Should return 204, got ${res.statusCode}`);
+    assert(tokenBlacklist.size === 0, 'No token should be blacklisted when req.token is missing');
+  });
+
+  await test('authMiddleware: stores raw token on req.token', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const token = await mgr.generateAccessToken('user-tok', 'user');
+    const mw = authMiddleware(mgr);
+
+    const req: AuthRequest = { headers: { authorization: `Bearer ${token}` } };
+    const res = mockRes();
+    let nextCalled = false;
+
+    await mw(req, res, () => { nextCalled = true; });
+    assert(nextCalled, 'next() should be called');
+    assert(req.token === token, 'req.token should contain the raw token string');
+  });
+
+  await test('register: rejects excessively long email', async () => {
+    const longEmail = 'a'.repeat(250) + '@test.com';
+    const req = { body: { email: longEmail, password: 'Password123' }, headers: {} };
+    const res = mockRes();
+    await routes.register(req as any, res);
+    assert(res.statusCode === 400, `Should return 400 for email > 254 chars, got ${res.statusCode}`);
+  });
+
+  await test('register: rejects email with single-char TLD', async () => {
+    const req = { body: { email: 'user@example.c', password: 'Password123' }, headers: {} };
+    const res = mockRes();
+    await routes.register(req as any, res);
+    assert(res.statusCode === 400, `Should return 400 for single-char TLD, got ${res.statusCode}`);
+  });
+
   console.log('\nAll auth tests passed!');
 }
 

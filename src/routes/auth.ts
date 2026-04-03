@@ -17,6 +17,8 @@ import type { JwtPayload } from '../auth/jwt.js';
 export interface AuthRouteRequest {
   body: Record<string, unknown>;
   user?: JwtPayload;
+  /** Raw Bearer token string, set by auth middleware. */
+  token?: string;
   [key: string]: unknown;
 }
 
@@ -41,9 +43,11 @@ export interface AuthDependencies {
   };
 }
 
-// Email validation: basic check for presence and @ symbol
+// Email validation: RFC 5321 max length, requires @ and 2+ char TLD
 function isValidEmail(email: unknown): email is string {
-  return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if (typeof email !== 'string') return false;
+  if (email.length > 254) return false; // RFC 5321 max
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 }
 
 function isValidPassword(password: unknown): password is string {
@@ -179,18 +183,12 @@ export function createAuthRoutes(deps: AuthDependencies) {
    * POST /api/auth/logout
    *
    * Blacklists the access token so it can no longer be used,
-   * even before its natural expiration.
+   * even before its natural expiration. Requires the raw token
+   * to be set on the request by auth middleware (req.token).
    */
   function logout(req: AuthRouteRequest, res: AuthRouteResponse): void {
-    if (req.user) {
-      // Blacklist the access token until its original expiry
-      const authHeader = (req as any).headers?.['authorization'] ?? (req as any).headers?.['Authorization'];
-      if (authHeader) {
-        const token = authHeader.split(' ')[1];
-        if (token) {
-          tokenBlacklist.add(token, req.user.exp);
-        }
-      }
+    if (req.user && req.token) {
+      tokenBlacklist.add(req.token, req.user.exp);
     }
     res.status(204).json({});
   }

@@ -19,6 +19,8 @@ import type { JwtPayload } from '../auth/jwt.js';
 export interface AuthRequest {
   headers: Record<string, string | undefined>;
   user?: JwtPayload;
+  /** Raw Bearer token string, set by auth middleware for downstream use (e.g. logout blacklisting). */
+  token?: string;
   [key: string]: unknown;
 }
 
@@ -89,6 +91,7 @@ export function authMiddleware(jwtManager: JwtVerifier, blacklist?: TokenBlackli
     }
 
     req.user = payload;
+    req.token = token;
     next();
   };
 }
