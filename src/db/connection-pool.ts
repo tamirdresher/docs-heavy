@@ -130,9 +130,13 @@ function createInMemoryConnection(
       if (txActive) {
         // Auto-rollback abandoned transactions to avoid leaving
         // dangling locks in a real database driver.
-        conn.rollback().catch(() => {});
+        // Clear local state synchronously, then defer the pool
+        // release to the next microtick so any real-driver rollback
+        // completes before the connection is handed to a new consumer.
         txActive = false;
         conn.inTransaction = false;
+        Promise.resolve().then(() => onRelease(conn));
+        return;
       }
       onRelease(conn);
     },
@@ -201,6 +205,7 @@ export class ConnectionPool {
 
   /**
    * Initialize the pool, creating minimum connections.
+   * Safe to call multiple times — subsequent calls are no-ops.
    */
   async initialize(): Promise<void> {
     if (this.closed) throw new Error('Pool is closed');
@@ -209,8 +214,10 @@ export class ConnectionPool {
       this.addConnection();
     }
 
-    // Start idle reaper
-    this.reaperInterval = setInterval(() => this.reapIdle(), this.options.idleTimeoutMs);
+    // Guard against duplicate reaper intervals from repeated initialize() calls
+    if (!this.reaperInterval) {
+      this.reaperInterval = setInterval(() => this.reapIdle(), this.options.idleTimeoutMs);
+    }
   }
 
   /**

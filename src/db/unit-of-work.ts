@@ -37,13 +37,21 @@ export class UnitOfWork {
 
   /**
    * Begin the transaction.
+   * If beginTransaction() fails, the acquired connection is released
+   * to prevent pool leaks.
    */
   async begin(): Promise<void> {
     if (this.connection) {
       throw new Error('UnitOfWork already started');
     }
-    this.connection = await this.pool.acquire();
-    await this.connection.beginTransaction();
+    const conn = await this.pool.acquire();
+    try {
+      await conn.beginTransaction();
+      this.connection = conn;
+    } catch (err) {
+      conn.release();
+      throw err;
+    }
   }
 
   /**
@@ -119,6 +127,7 @@ export class UnitOfWork {
 /**
  * Helper: run a callback within a Unit of Work transaction.
  * Automatically commits on success, rolls back on error.
+ * If rollback itself fails, the original error is preserved.
  */
 export async function withTransaction<R>(
   pool: ConnectionPool,
@@ -132,7 +141,11 @@ export async function withTransaction<R>(
     await uow.commit();
     return result;
   } catch (err) {
-    await uow.rollback();
+    try {
+      await uow.rollback();
+    } catch {
+      // Rollback failure is secondary — always propagate original error
+    }
     throw err;
   }
 }

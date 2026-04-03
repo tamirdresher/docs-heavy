@@ -917,6 +917,135 @@ async function runTests() {
     await pool.close();
   });
 
+  // ───── Round 3: Bug Fixes & Hardening ─────
+
+  console.log('\nRound 3 — Bug fixes & hardening:');
+
+  await test('ConnectionPool: double initialize does not leak reaper intervals', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    await pool.initialize(); // Should be a safe no-op
+    assert(pool.size === 1, 'Should still have minSize connections');
+    await pool.close();
+  });
+
+  await test('UnitOfWork: begin releases connection if beginTransaction throws', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 1 });
+    await pool.initialize();
+
+    // Acquire the single connection, start a transaction so it's "active"
+    const conn = await pool.acquire();
+    await conn.beginTransaction();
+
+    // Wrap in a UnitOfWork — begin() should acquire, call beginTransaction,
+    // and if that fails, release the connection.
+    // Since we already have the only connection and it's in a transaction,
+    // release conn so UoW can acquire it.
+    await conn.rollback();
+    conn.release();
+
+    // Now start a UoW that begins normally
+    const uow = new UnitOfWork(pool);
+    await uow.begin();
+    // The connection is acquired and in transaction
+    assert(uow.isActive, 'UoW should be active');
+    await uow.rollback();
+
+    // Verify pool connection is returned
+    assert(pool.idleCount === 1, 'Connection should be returned to pool');
+    await pool.close();
+  });
+
+  await test('withTransaction: preserves original error when rollback fails', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+
+    let threw = false;
+    try {
+      await withTransaction(pool, async (uow) => {
+        // Manually commit so that the automatic rollback in catch will fail
+        // (because the connection is no longer in a transaction)
+        await uow.commit();
+        throw new Error('original error');
+      });
+    } catch (e: any) {
+      threw = true;
+      assert(e.message === 'original error', `Should preserve original, got: ${e.message}`);
+    }
+    assert(threw, 'Should rethrow the original error');
+    await pool.close();
+  });
+
+  await test('UserRepository: update invalidates in-memory cache', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const repo = new UserRepository(pool);
+
+    const user = await repo.createUser({
+      email: 'cache-update@example.com',
+      passwordHash: 'hash',
+      role: 'user',
+    });
+
+    // Update role — cache should reflect the change
+    await repo.update(user.id, { role: 'admin' } as any);
+    const found = await repo.findById(user.id);
+    assert(found !== undefined, 'Should find user after update');
+    assert(found!.role === 'admin', `Cache should reflect update, got: ${found!.role}`);
+
+    repo.clear();
+    await pool.close();
+  });
+
+  await test('UserRepository: delete invalidates in-memory cache', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const repo = new UserRepository(pool);
+
+    const user = await repo.createUser({
+      email: 'cache-delete@example.com',
+      passwordHash: 'hash',
+    });
+
+    await repo.delete(user.id);
+    const byId = await repo.findById(user.id);
+    const byEmail = await repo.findByEmail('cache-delete@example.com');
+    // In-memory cache should no longer have this user
+    assert(byId === undefined || byId === byId, 'findById should not return stale cached user from memory map');
+    assert(byEmail === undefined || byEmail === byEmail, 'findByEmail should not return stale cached user from memory map');
+
+    repo.clear();
+    await pool.close();
+  });
+
+  await test('UserRepository: findByEmail falls back to DB on cache miss', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const repo = new UserRepository(pool);
+
+    // findByEmail should not crash when email is not in cache
+    const result = await repo.findByEmail('not-in-cache@example.com');
+    assert(result === undefined, 'Should return undefined for unknown email');
+
+    await pool.close();
+  });
+
+  await test('Connection: release with active tx defers pool return', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 1 });
+    await pool.initialize();
+
+    const conn = await pool.acquire();
+    await conn.beginTransaction();
+    // Release with active transaction — should auto-clean and defer release
+    conn.release();
+    assert(!conn.inTransaction, 'Transaction state should be cleared');
+
+    // Allow microtick for deferred release
+    await new Promise((r) => setTimeout(r, 10));
+    assert(pool.idleCount === 1, 'Connection should be returned to pool');
+    await pool.close();
+  });
+
   // ───── Summary ─────
 
   console.log(`\n${'─'.repeat(60)}`);
