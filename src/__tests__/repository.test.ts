@@ -673,6 +673,86 @@ async function runTests() {
     await pool.close();
   });
 
+  // ───── Wait Queue Tests ─────
+
+  console.log('\nWait queue tests:');
+
+  await test('ConnectionPool: waits for released connection when pool exhausted', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 1, acquireTimeoutMs: 2000 });
+    await pool.initialize();
+    const conn1 = await pool.acquire();
+    assert(pool.waitQueueSize === 0, 'Wait queue should be empty');
+
+    // Start acquiring — will queue because pool is exhausted
+    const acquirePromise = pool.acquire();
+    // Allow microtask to enqueue
+    await new Promise((r) => setTimeout(r, 10));
+    assert(pool.waitQueueSize === 1, 'Wait queue should have 1 waiter');
+
+    // Release the first connection — should fulfill the waiter
+    conn1.release();
+    const conn2 = await acquirePromise;
+    assert(conn2 !== undefined, 'Should get connection from wait queue');
+    assert(pool.waitQueueSize === 0, 'Wait queue should be drained');
+
+    conn2.release();
+    await pool.close();
+  });
+
+  await test('ConnectionPool: acquire times out when no connection freed', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 1, acquireTimeoutMs: 50 });
+    await pool.initialize();
+    await pool.acquire(); // Take the only connection
+
+    let threw = false;
+    try {
+      await pool.acquire();
+    } catch (e: any) {
+      threw = true;
+      assert(e.message === 'Connection pool exhausted', `Wrong error: ${e.message}`);
+    }
+    assert(threw, 'Should throw after timeout');
+    await pool.close();
+  });
+
+  await test('ConnectionPool: close rejects pending waiters', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 1, acquireTimeoutMs: 5000 });
+    await pool.initialize();
+    await pool.acquire();
+
+    const acquirePromise = pool.acquire();
+
+    // Allow microtask to enqueue, then close pool
+    await new Promise((r) => setTimeout(r, 10));
+    await pool.close();
+
+    let threw = false;
+    try {
+      await acquirePromise;
+    } catch (e: any) {
+      threw = true;
+      assert(e.message === 'Pool is closed', `Wrong error: ${e.message}`);
+    }
+    assert(threw, 'Should reject waiter on close');
+  });
+
+  // ───── Auto-rollback Tests ─────
+
+  console.log('\nAuto-rollback tests:');
+
+  await test('Connection: release auto-rollbacks active transaction', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 2 });
+    await pool.initialize();
+    const conn = await pool.acquire();
+    await conn.beginTransaction();
+    assert(conn.inTransaction, 'Should be in transaction');
+
+    // Release without commit/rollback — should auto-rollback
+    conn.release();
+    assert(!conn.inTransaction, 'Transaction should be rolled back on release');
+    await pool.close();
+  });
+
   // ───── Summary ─────
 
   console.log(`\n${'─'.repeat(60)}`);
