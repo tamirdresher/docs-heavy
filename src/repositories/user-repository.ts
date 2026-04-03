@@ -172,8 +172,24 @@ export class UserRepository extends Repository<User> {
   /**
    * Update a user and invalidate the in-memory cache so stale
    * data is never served after a mutation.
+   *
+   * Normalizes email if changed and enforces uniqueness — prevents
+   * one user's update from hijacking another user's email index entry.
    */
   async update(id: string, changes: Partial<User>): Promise<User | undefined> {
+    // Normalize email consistently with createUser()
+    if (changes.email) {
+      changes = { ...changes, email: changes.email.toLowerCase().trim() };
+    }
+
+    // Enforce email uniqueness when email is being changed
+    if (changes.email) {
+      const existingOwner = this.emailIndex.get(changes.email);
+      if (existingOwner && existingOwner !== id) {
+        throw new Error('EMAIL_EXISTS');
+      }
+    }
+
     const result = await super.update(id, changes);
     if (result) {
       // Refresh cache with the updated entity
@@ -181,7 +197,7 @@ export class UserRepository extends Repository<User> {
       if (old && changes.email) {
         // Email changed — remove old email index entry
         this.emailIndex.delete(old.email);
-        this.emailIndex.set(changes.email.toLowerCase().trim(), id);
+        this.emailIndex.set(changes.email, id);
       }
       this.users.set(id, result);
     }

@@ -1137,6 +1137,145 @@ async function runTests() {
     await pool.close();
   });
 
+  // ───── Round 5: UoW Limbo State & Email Integrity ─────
+
+  console.log('\nRound 5 — UoW limbo state & email integrity:');
+
+  await test('UnitOfWork: commit failure marks UoW as rolledBack', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const uow = new UnitOfWork(pool);
+    await uow.begin();
+
+    // Manually commit the connection to make UoW.commit() throw
+    // (because the transaction is no longer active)
+    const conn = uow.getConnection();
+    await conn.commit();
+
+    let threw = false;
+    try {
+      await uow.commit();
+    } catch (e: any) {
+      threw = true;
+      assert(e.message === 'No active transaction', `Wrong error: ${e.message}`);
+    }
+    assert(threw, 'commit() should throw when underlying tx was already committed');
+    assert(uow.isRolledBack, 'UoW should be marked as rolledBack after failed commit');
+    assert(!uow.isActive, 'UoW should not be active after failed commit');
+    await pool.close();
+  });
+
+  await test('UnitOfWork: getConnection rejects after failed commit', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const uow = new UnitOfWork(pool);
+    await uow.begin();
+
+    // Force commit to fail
+    const conn = uow.getConnection();
+    await conn.commit();
+    try { await uow.commit(); } catch { /* expected */ }
+
+    // getConnection should now reject — not return a released connection
+    let threw = false;
+    try {
+      uow.getConnection();
+    } catch (e: any) {
+      threw = true;
+      assert(e.message.includes('already completed'), `Wrong error: ${e.message}`);
+    }
+    assert(threw, 'Should reject getConnection after failed commit');
+    await pool.close();
+  });
+
+  await test('UnitOfWork: connection is nulled after commit', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const uow = new UnitOfWork(pool);
+    await uow.begin();
+    await uow.commit();
+
+    // Verify connection reference is released for GC
+    assert(!uow.isActive, 'Should not be active');
+    assert(uow.isCommitted, 'Should be committed');
+
+    // Verify pool got the connection back
+    assert(pool.idleCount === 1, 'Connection should be returned to pool');
+    await pool.close();
+  });
+
+  await test('UnitOfWork: connection is nulled after rollback', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const uow = new UnitOfWork(pool);
+    await uow.begin();
+    await uow.rollback();
+
+    assert(!uow.isActive, 'Should not be active');
+    assert(uow.isRolledBack, 'Should be rolled back');
+    assert(pool.idleCount === 1, 'Connection should be returned to pool');
+    await pool.close();
+  });
+
+  await test('UserRepository: update rejects duplicate email', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const repo = new UserRepository(pool);
+
+    await repo.createUser({ email: 'alice@example.com', passwordHash: 'h1' });
+    const bob = await repo.createUser({ email: 'bob@example.com', passwordHash: 'h2' });
+
+    let threw = false;
+    try {
+      await repo.update(bob.id, { email: 'alice@example.com' } as any);
+    } catch (e: any) {
+      threw = true;
+      assert(e.message === 'EMAIL_EXISTS', `Wrong error: ${e.message}`);
+    }
+    assert(threw, 'Should reject update with duplicate email');
+
+    // Verify Bob still has original email
+    const bob2 = await repo.findById(bob.id);
+    assert(bob2!.email === 'bob@example.com', 'Email should be unchanged after rejected update');
+
+    repo.clear();
+    await pool.close();
+  });
+
+  await test('UserRepository: update normalizes email', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const repo = new UserRepository(pool);
+
+    const user = await repo.createUser({ email: 'norm@example.com', passwordHash: 'h' });
+    await repo.update(user.id, { email: 'UPDATED@EXAMPLE.COM' } as any);
+
+    const found = await repo.findById(user.id);
+    assert(found!.email === 'updated@example.com', `Email should be normalized, got: ${found!.email}`);
+
+    // Should be findable by normalized email
+    const byEmail = await repo.findByEmail('updated@example.com');
+    assert(byEmail !== undefined, 'Should find user by normalized updated email');
+
+    repo.clear();
+    await pool.close();
+  });
+
+  await test('UserRepository: update allows same email for same user', async () => {
+    const pool = new ConnectionPool({ minSize: 1, maxSize: 5 });
+    await pool.initialize();
+    const repo = new UserRepository(pool);
+
+    const user = await repo.createUser({ email: 'same@example.com', passwordHash: 'h' });
+
+    // Updating to the same email should succeed (no false-positive uniqueness error)
+    const result = await repo.update(user.id, { email: 'same@example.com' } as any);
+    assert(result !== undefined, 'Should allow updating email to same value');
+
+    repo.clear();
+    await pool.close();
+  });
+
   // ───── Summary ─────
 
   console.log(`\n${'─'.repeat(60)}`);

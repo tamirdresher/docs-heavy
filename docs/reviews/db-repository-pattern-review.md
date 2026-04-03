@@ -172,8 +172,32 @@ The base `Repository.delete()` runs `DELETE FROM ... WHERE id = $1` without chec
 | Suite | Tests |
 |---|---|
 | Auth tests | 70 |
-| Repository tests | 61 |
-| **Total** | **131** |
+| Repository tests | 68 |
+| **Total** | **138** |
+
+## Follow-up Review (Round 5)
+
+### 🟢 Fixed: UnitOfWork left in limbo state after failed commit or rollback
+
+If `commit()` threw (e.g., network error in a real driver), the `finally` block released the connection back to the pool but neither `committed` nor `rolledBack` was set to `true`. The UoW appeared "active" (`isActive === true`) while holding a reference to a released — and possibly reused — connection. Any subsequent `getConnection()` call would silently return this shared connection, enabling data corruption across consumers.
+
+Now `commit()` catches failures and marks the UoW as rolled-back before rethrowing. Both `commit()` and `rollback()` null out the connection reference in `finally` to prevent stale references and allow GC. Guard checks in `getConnection()` and `getRepository()` have been reordered so the completed-state check runs before the null-connection check, producing accurate error messages.
+
+### 🟢 Fixed: UserRepository.update() allowed email hijacking via missing uniqueness check
+
+`update()` accepted email changes without checking whether the new email was already taken by another user. Calling `update(bobId, { email: "alice@example.com" })` would overwrite Alice's `emailIndex` entry with Bob's ID, making Alice unreachable by email lookup. Now `update()` checks the `emailIndex` for conflicts (excluding the user being updated) and throws `EMAIL_EXISTS` on collision — consistent with `createUser()`.
+
+### 🟢 Fixed: UserRepository.update() didn't normalize email
+
+When updating a user's email, the raw (potentially mixed-case/whitespace-padded) value was stored in the in-memory cache via `super.update()`, which returns `{ ...existing, ...changes }`. This was inconsistent with `createUser()` which always normalizes email to lowercase/trimmed. Now `update()` normalizes `changes.email` before passing it to the parent, ensuring consistent behavior across all write paths.
+
+## Updated Test Coverage
+
+| Suite | Tests |
+|---|---|
+| Auth tests | 70 |
+| Repository tests | 68 |
+| **Total** | **138** |
 
 ## Decision
 

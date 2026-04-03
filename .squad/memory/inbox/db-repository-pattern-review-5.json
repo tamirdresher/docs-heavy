@@ -1,0 +1,45 @@
+{
+  "timestamp": "2026-04-03T07:20:00Z",
+  "issue": "Review PR refactoring database layer",
+  "pr": 17,
+  "branch": "review/db-repository-pattern-review-5",
+  "observations": [
+    {
+      "type": "bug_fix",
+      "summary": "UnitOfWork left in limbo state after failed commit or rollback",
+      "detail": "If commit() threw (e.g., network error in a real driver), the finally block released the connection back to the pool but neither committed nor rolledBack was set to true. The UoW appeared 'active' (isActive === true) while holding a reference to a released and possibly reused connection. Any subsequent getConnection() call would silently return this shared connection — a data corruption risk. Now commit() catches failures and marks the UoW as rolledBack before rethrowing. Both commit() and rollback() null out the connection reference in finally to prevent stale references and allow GC. Guard checks in getConnection() and getRepository() reordered so completed-state check runs before null-connection check. Rollback guard reordered so idempotent check runs first, preserving safe double-rollback behavior.",
+      "confidence": "high"
+    },
+    {
+      "type": "bug_fix",
+      "summary": "UserRepository.update() allowed email hijacking via missing uniqueness check",
+      "detail": "update() accepted email changes without checking whether the new email was already taken by another user. Calling update(bobId, { email: 'alice@example.com' }) would overwrite Alice's emailIndex entry with Bob's ID, making Alice unreachable by email lookup. Now update() checks the emailIndex for conflicts (excluding the user being updated) and throws EMAIL_EXISTS on collision, consistent with createUser().",
+      "confidence": "high"
+    },
+    {
+      "type": "bug_fix",
+      "summary": "UserRepository.update() didn't normalize email",
+      "detail": "When updating a user's email, the raw (potentially mixed-case/whitespace-padded) value was stored in the in-memory cache via super.update(), which returns { ...existing, ...changes }. This was inconsistent with createUser() which always normalizes email to lowercase/trimmed. Now update() normalizes changes.email before passing it to the parent, ensuring consistent behavior across all write paths.",
+      "confidence": "high"
+    },
+    {
+      "type": "testing",
+      "summary": "Added 7 new tests covering all round 5 fixes",
+      "detail": "New tests: (1) commit failure marks UoW as rolledBack, (2) getConnection rejects after failed commit, (3) connection nulled after commit, (4) connection nulled after rollback, (5) update rejects duplicate email, (6) update normalizes email, (7) update allows same email for same user. All 138 total tests pass (70 auth + 68 repository).",
+      "confidence": "high"
+    },
+    {
+      "type": "documentation",
+      "summary": "Updated review doc with round 5 findings and test counts",
+      "detail": "Added Round 5 section to docs/reviews/db-repository-pattern-review.md documenting UoW limbo state fix, email hijacking fix, and email normalization fix. Updated test count table from 131 to 138.",
+      "confidence": "high"
+    }
+  ],
+  "verdict": "fixes_applied",
+  "tests": {
+    "total": 138,
+    "new": 7,
+    "passing": 138,
+    "failing": 0
+  }
+}
