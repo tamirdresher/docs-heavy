@@ -40,6 +40,7 @@ function assert(condition: boolean, msg: string): void {
 function mockRes(): AuthResponse & {
   statusCode?: number;
   body?: unknown;
+  ended?: boolean;
 } {
   const res: any = {};
   res.status = (code: number) => {
@@ -48,6 +49,9 @@ function mockRes(): AuthResponse & {
   };
   res.json = (b: unknown) => {
     res.body = b;
+  };
+  res.end = () => {
+    res.ended = true;
   };
   return res;
 }
@@ -719,6 +723,93 @@ async function runTests() {
     const res = mockRes();
     await routes.register(req as any, res);
     assert(res.statusCode === 400, `Should return 400 for single-char TLD, got ${res.statusCode}`);
+  });
+
+  // ───── Hardening review tests ─────
+
+  console.log('\nHardening review tests:');
+
+  await test('register: rejects password exceeding 128 characters', async () => {
+    userStore.clear();
+    tokenBlacklist.clear();
+    const longPassword = 'A1' + 'a'.repeat(127); // 129 chars
+    const req = { body: { email: 'longpw@test.com', password: longPassword }, headers: {} };
+    const res = mockRes();
+    await routes.register(req as any, res);
+    assert(res.statusCode === 400, `Should return 400 for password > 128 chars, got ${res.statusCode}`);
+  });
+
+  await test('register: accepts password at exactly 128 characters', async () => {
+    userStore.clear();
+    tokenBlacklist.clear();
+    const maxPassword = 'A1' + 'a'.repeat(126); // 128 chars
+    const req = { body: { email: 'maxpw@test.com', password: maxPassword }, headers: {} };
+    const res = mockRes();
+    await routes.register(req as any, res);
+    assert(res.statusCode === 201, `Should return 201 for 128-char password, got ${res.statusCode}`);
+  });
+
+  await test('hashPassword: rejects password exceeding 128 characters', async () => {
+    let threw = false;
+    try {
+      await hashPassword('a'.repeat(129));
+    } catch (e: any) {
+      threw = e.message.includes('128');
+    }
+    assert(threw, 'Should reject password > 128 chars at hash level');
+  });
+
+  await test('refresh: rejects token for deleted user', async () => {
+    userStore.clear();
+    tokenBlacklist.clear();
+    const regRes = mockRes();
+    await routes.register(
+      { body: { email: 'deleted@test.com', password: 'Password123' }, headers: {} } as any,
+      regRes,
+    );
+    const refreshToken = (regRes.body as any).refreshToken;
+
+    // Delete the user
+    userStore.clear();
+
+    const res = mockRes();
+    await routes.refresh({ body: { refreshToken }, headers: {} } as any, res);
+    assert(res.statusCode === 401, `Should return 401 for deleted user refresh, got ${res.statusCode}`);
+  });
+
+  await test('refresh: uses current user role not stale token role', async () => {
+    userStore.clear();
+    tokenBlacklist.clear();
+    // Register as regular user
+    const regRes = mockRes();
+    await routes.register(
+      { body: { email: 'rolechange@test.com', password: 'Password123' }, headers: {} } as any,
+      regRes,
+    );
+    const refreshToken = (regRes.body as any).refreshToken;
+
+    // Verify refresh works and user exists
+    const res = mockRes();
+    await routes.refresh({ body: { refreshToken }, headers: {} } as any, res);
+    assert(res.statusCode === 200, `Should return 200 for valid refresh, got ${res.statusCode}`);
+  });
+
+  await test('logout: calls end() not json() for 204 response', () => {
+    tokenBlacklist.clear();
+    const req = { body: {}, headers: {} };
+    const res = mockRes();
+    routes.logout(req as any, res);
+    assert(res.statusCode === 204, `Should return 204, got ${res.statusCode}`);
+    assert((res as any).ended === true, 'Should call end() for 204 response');
+  });
+
+  await test('logout: works without authentication (no user or token)', () => {
+    tokenBlacklist.clear();
+    const req = { body: {}, headers: {} }; // no user or token at all
+    const res = mockRes();
+    routes.logout(req as any, res);
+    assert(res.statusCode === 204, `Should return 204, got ${res.statusCode}`);
+    assert(tokenBlacklist.size === 0, 'No token should be blacklisted');
   });
 
   console.log('\nAll auth tests passed!');

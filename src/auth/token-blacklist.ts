@@ -34,10 +34,9 @@ export class TokenBlacklist {
     // Evict oldest entries if we exceed maxSize
     if (this.entries.size > this.maxSize) {
       const excess = this.entries.size - this.maxSize;
-      const iter = this.entries.keys();
+      const keys = Array.from(this.entries.keys());
       for (let i = 0; i < excess; i++) {
-        const key = iter.next().value;
-        if (key !== undefined) this.entries.delete(key);
+        this.entries.delete(keys[i]);
       }
     }
   }

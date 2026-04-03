@@ -30,6 +30,7 @@ Create a new user account.
 
 Password requirements:
 - Minimum 8 characters
+- Maximum 128 characters
 - At least one uppercase letter
 - At least one lowercase letter
 - At least one digit
@@ -88,12 +89,14 @@ Two roles are supported: `admin` and `user`. Protected routes can require specif
 ## Security Notes
 
 - Passwords are hashed with scrypt (memory-hard, resistant to GPU attacks).
-- Passwords must contain uppercase, lowercase, and digit characters.
+- Passwords must contain uppercase, lowercase, and digit characters (max 128 chars).
 - JWT signatures use HMAC-SHA256 with timing-safe comparison.
 - JWT verification enforces `alg: HS256` to prevent algorithm substitution attacks.
 - Refresh tokens cannot be used as access tokens and vice versa.
 - Refresh token rotation: each refresh invalidates the previous token.
+- Refresh endpoint verifies the user still exists before issuing new tokens.
 - Logout blacklists the access token for its remaining lifetime.
+- Logout returns 204 No Content with no response body per HTTP spec.
 - Login performs constant-time password verification even for unknown emails to prevent timing-based user enumeration.
 - Scrypt parameter bounds are validated on verification to prevent DoS via crafted hashes.
 - Token blacklist enforces a maximum size to prevent unbounded memory growth.

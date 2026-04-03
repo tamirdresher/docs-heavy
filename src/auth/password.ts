@@ -41,6 +41,9 @@ export async function hashPassword(
   if (!password || typeof password !== 'string') {
     throw new Error('password must be a non-empty string');
   }
+  if (password.length > 128) {
+    throw new Error('password must not exceed 128 characters');
+  }
 
   const { randomBytes, scrypt } = await import('node:crypto');
 

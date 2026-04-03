@@ -25,11 +25,13 @@ export interface AuthRouteRequest {
 export interface AuthRouteResponse {
   status(code: number): AuthRouteResponse;
   json(body: unknown): void;
+  end(): void;
 }
 
 export interface AuthDependencies {
   userStore: {
     findByEmail(email: string): { id: string; email: string; passwordHash: string; role: 'admin' | 'user' } | undefined;
+    findById(id: string): { id: string; email: string; passwordHash: string; role: 'admin' | 'user' } | undefined;
     create(data: { email: string; passwordHash: string; role?: 'admin' | 'user' }): { id: string; email: string; role: 'admin' | 'user' };
     toPublic(user: any): Record<string, unknown>;
   };
@@ -51,7 +53,7 @@ function isValidEmail(email: unknown): email is string {
 }
 
 function isValidPassword(password: unknown): password is string {
-  if (typeof password !== 'string' || password.length < 8) return false;
+  if (typeof password !== 'string' || password.length < 8 || password.length > 128) return false;
   // Require at least one uppercase, one lowercase, and one digit
   if (!/[A-Z]/.test(password)) return false;
   if (!/[a-z]/.test(password)) return false;
@@ -172,10 +174,20 @@ export function createAuthRoutes(deps: AuthDependencies) {
       return;
     }
 
+    // Verify the user still exists and hasn't been deleted/suspended
+    const user = userStore.findById(payload.sub);
+    if (!user) {
+      res.status(401).json({
+        error: { code: 'INVALID_TOKEN', message: 'Invalid or expired refresh token' },
+      });
+      return;
+    }
+
     // Blacklist the old refresh token (rotation)
     tokenBlacklist.add(refreshToken, payload.exp);
 
-    const tokens = await jwtManager.generateTokenPair(payload.sub, payload.role);
+    // Use the user's current role (may have changed since the token was issued)
+    const tokens = await jwtManager.generateTokenPair(user.id, user.role);
     res.status(200).json(tokens);
   }
 
@@ -190,7 +202,7 @@ export function createAuthRoutes(deps: AuthDependencies) {
     if (req.user && req.token) {
       tokenBlacklist.add(req.token, req.user.exp);
     }
-    res.status(204).json({});
+    res.status(204).end();
   }
 
   return { register, login, refresh, logout };
