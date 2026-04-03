@@ -1,0 +1,63 @@
+{
+  "timestamp": "2026-04-03T06:44:00Z",
+  "issue": "Review PR refactoring database layer",
+  "pr": 13,
+  "branch": "review/db-repository-pattern-fixes",
+  "observations": [
+    {
+      "type": "bug_fix",
+      "summary": "Connection pool acquire() threw immediately on exhaustion — added wait queue with timeout",
+      "detail": "When all maxSize connections were in use, acquire() threw 'Connection pool exhausted' with no retry. Added a wait queue backed by a configurable acquireTimeoutMs (default 5s) that queues requests and fulfills them when connections are released. This prevents cascading failures from transient traffic spikes. Also added waitQueueSize getter for monitoring.",
+      "confidence": "high"
+    },
+    {
+      "type": "bug_fix",
+      "summary": "Connection release() silently cleared active transactions — now auto-rollbacks",
+      "detail": "release() was setting txActive=false and inTransaction=false without issuing a rollback. In a real database driver this would leave dangling transactions holding locks. Now release() calls conn.rollback() asynchronously before returning the connection to the pool, matching pg.Pool and mysql2 behavior.",
+      "confidence": "high"
+    },
+    {
+      "type": "bug_fix",
+      "summary": "UserRepository.createUser() wrote in-memory state before DB — reordered to DB-first",
+      "detail": "Previously, in-memory maps (users, emailIndex) were updated before super.create(user). If the DB write failed (pool exhausted, constraint violation), in-memory state diverged from the database. Reordered so the DB write happens first; in-memory indexes are only updated on success. This prevents phantom users that exist in-memory but not in the database.",
+      "confidence": "high"
+    },
+    {
+      "type": "bug_fix",
+      "summary": "UserRepository.findById() bypassed connection pool — now falls back to parent",
+      "detail": "findById() was hardcoded to return this.users.get(id), never going through the connection pool. The comment said 'in production, this goes through the pool' but the code didn't. Now it checks the in-memory cache first for performance, then falls back to super.findById() which acquires a connection from the pool.",
+      "confidence": "high"
+    },
+    {
+      "type": "bug_fix",
+      "summary": "UserRepositoryAdapter.create() swallowed DB write errors — now rolls back in-memory and logs",
+      "detail": "The adapter's fire-and-forget DB write had .catch(() => { /* log in production */ }) which silently discarded errors. Now the catch handler removes the user from in-memory maps (this.repo.users.delete, this.repo.emailIndex.delete) and logs the error with console.error. This prevents data divergence when the async write fails.",
+      "confidence": "high"
+    },
+    {
+      "type": "improvement",
+      "summary": "Pool close() now drains wait queue to prevent hung promises",
+      "detail": "close() previously just cleared the connections array. If there were pending acquire() promises in the wait queue, they would hang forever. Now close() iterates all waiters, clears their timeouts, and rejects them with 'Pool is closed'.",
+      "confidence": "high"
+    },
+    {
+      "type": "testing",
+      "summary": "Added 4 new tests for wait queue, timeout, close drain, and auto-rollback",
+      "detail": "New tests: (1) waits for released connection when pool exhausted, (2) acquire times out when no connection freed, (3) close rejects pending waiters, (4) release auto-rollbacks active transaction. All 110 total tests pass (70 auth + 40 repository).",
+      "confidence": "high"
+    },
+    {
+      "type": "documentation",
+      "summary": "Fixed docs claiming 'health checks before checkout' — feature not implemented",
+      "detail": "The connection-pool.ts header comment listed 'Health checks before checkout' as a feature but acquire() has no health check logic. Removed the claim from the JSDoc. Health checks can be added in a follow-up if needed.",
+      "confidence": "high"
+    }
+  ],
+  "verdict": "fixes_applied",
+  "tests": {
+    "total": 110,
+    "new": 4,
+    "passing": 110,
+    "failing": 0
+  }
+}
