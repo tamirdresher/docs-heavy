@@ -4,8 +4,8 @@
  * Provides a configurable pool of database connections with:
  *  - Min/max pool size constraints
  *  - Idle connection reaping
- *  - Health checks before checkout
  *  - Prepared statement caching per connection
+ *  - Wait queue with configurable timeout on pool exhaustion
  *
  * In production, back this with pg.Pool, mysql2, or a similar driver.
  * This implementation provides the interface and in-memory simulation
@@ -19,6 +19,8 @@ export interface PoolOptions {
   maxSize?: number;
   /** Idle timeout in ms before a connection is reaped. Default: 30000. */
   idleTimeoutMs?: number;
+  /** Timeout in ms to wait for a connection when pool is exhausted. Default: 5000. */
+  acquireTimeoutMs?: number;
   /** Connection string / DSN. */
   connectionString?: string;
 }
@@ -100,6 +102,9 @@ function createInMemoryConnection(
 
     release(): void {
       if (txActive) {
+        // Auto-rollback abandoned transactions to avoid leaving
+        // dangling locks in a real database driver.
+        conn.rollback().catch(() => {});
         txActive = false;
         conn.inTransaction = false;
       }
@@ -139,6 +144,11 @@ export class ConnectionPool {
   private readonly options: Required<PoolOptions>;
   private readonly connections: PooledConnection[] = [];
   private readonly store: Map<string, Map<string, Record<string, unknown>>>;
+  private readonly waitQueue: Array<{
+    resolve: (conn: DatabaseConnection) => void;
+    reject: (err: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }> = [];
   private closed = false;
   private reaperInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -147,6 +157,7 @@ export class ConnectionPool {
       minSize: options.minSize ?? 2,
       maxSize: options.maxSize ?? 10,
       idleTimeoutMs: options.idleTimeoutMs ?? 30_000,
+      acquireTimeoutMs: options.acquireTimeoutMs ?? 5_000,
       connectionString: options.connectionString ?? 'memory://',
     };
 
@@ -177,6 +188,7 @@ export class ConnectionPool {
   /**
    * Acquire a connection from the pool.
    * Creates a new one if all are busy and pool isn't at max capacity.
+   * When pool is exhausted, waits up to acquireTimeoutMs for a connection.
    */
   async acquire(): Promise<DatabaseConnection> {
     if (this.closed) throw new Error('Pool is closed');
@@ -197,11 +209,20 @@ export class ConnectionPool {
       return pooled.connection;
     }
 
-    throw new Error('Connection pool exhausted');
+    // Pool exhausted — queue the request with a timeout
+    return new Promise<DatabaseConnection>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const idx = this.waitQueue.findIndex((w) => w.resolve === resolve);
+        if (idx >= 0) this.waitQueue.splice(idx, 1);
+        reject(new Error('Connection pool exhausted'));
+      }, this.options.acquireTimeoutMs);
+
+      this.waitQueue.push({ resolve, reject, timer });
+    });
   }
 
   /**
-   * Close all connections and stop the reaper.
+   * Close all connections, drain the wait queue, and stop the reaper.
    */
   async close(): Promise<void> {
     this.closed = true;
@@ -209,6 +230,14 @@ export class ConnectionPool {
       clearInterval(this.reaperInterval);
       this.reaperInterval = null;
     }
+
+    // Reject all waiting acquires
+    for (const waiter of this.waitQueue) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error('Pool is closed'));
+    }
+    this.waitQueue.length = 0;
+
     this.connections.length = 0;
   }
 
@@ -220,6 +249,11 @@ export class ConnectionPool {
   /** Number of idle connections. */
   get idleCount(): number {
     return this.connections.filter((c) => c.idle).length;
+  }
+
+  /** Number of requests waiting for a connection. */
+  get waitQueueSize(): number {
+    return this.waitQueue.length;
   }
 
   /** Whether the pool is closed. */
@@ -237,6 +271,19 @@ export class ConnectionPool {
   private addConnection(): PooledConnection {
     const pooled: PooledConnection = {
       connection: createInMemoryConnection(this.store, (conn) => {
+        // When a connection is released, check the wait queue first
+        const waiter = this.waitQueue.shift();
+        if (waiter) {
+          clearTimeout(waiter.timer);
+          const entry = this.connections.find((c) => c.connection.id === conn.id);
+          if (entry) {
+            entry.idle = false;
+            entry.lastUsedAt = Date.now();
+          }
+          waiter.resolve(conn);
+          return;
+        }
+
         const entry = this.connections.find((c) => c.connection.id === conn.id);
         if (entry) {
           entry.idle = true;

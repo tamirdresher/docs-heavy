@@ -95,21 +95,27 @@ export class UserRepository extends Repository<User> {
       updatedAt: now,
     };
 
-    // Store in-memory (simulates DB INSERT via connection pool)
+    // Write to DB first — if this fails, in-memory state stays clean
+    await super.create(user);
+
+    // Update in-memory indexes only after successful DB write
     this.users.set(id, user);
     this.emailIndex.set(normalizedEmail, id);
 
-    // Also go through the repository base for the SQL path
-    await super.create(user);
     return user;
   }
 
   /**
    * Find a user by ID.
+   * Uses in-memory cache for fast lookups; falls back to DB via pool.
    */
   async findById(id: string): Promise<User | undefined> {
-    // Use in-memory for now (in production, this goes through the pool)
-    return this.users.get(id);
+    // Check in-memory cache first for performance
+    const cached = this.users.get(id);
+    if (cached) return cached;
+
+    // Fall back to DB via the base Repository (connection pool path)
+    return super.findById(id);
   }
 
   /**
@@ -223,9 +229,12 @@ export class UserRepositoryAdapter {
     (this.repo as any).users.set(id, user);
     (this.repo as any).emailIndex.set(normalizedEmail, id);
 
-    // Fire the async DB write (non-blocking for backwards compat)
-    this.repo.create(user).catch(() => {
-      /* log in production */
+    // Fire the async DB write (non-blocking for backwards compat).
+    // Rolls back in-memory state on failure to prevent divergence.
+    this.repo.create(user).catch((err) => {
+      (this.repo as any).users.delete(id);
+      (this.repo as any).emailIndex.delete(normalizedEmail);
+      console.error(`[UserRepositoryAdapter] DB write failed for user ${id}: ${err.message}`);
     });
 
     return user;

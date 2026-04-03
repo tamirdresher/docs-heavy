@@ -48,6 +48,30 @@ The `Repository<T>` base class correctly implements:
 
 ## Issues Found
 
+### 🟢 Fixed: Connection release auto-rollbacks abandoned transactions
+
+The `release()` method previously silently cleared transaction state without rolling back. In a real database driver, this would leave dangling locks. Now `release()` triggers an async rollback before returning the connection to the pool.
+
+### 🟢 Fixed: UserRepository.createUser() writes DB before in-memory
+
+Previously, in-memory maps were updated before the DB write (`super.create()`). If the DB write failed, in-memory state would diverge from the database. Now the DB write happens first; in-memory indexes are only updated on success.
+
+### 🟢 Fixed: UserRepository.findById() delegates to connection pool
+
+The method was hardcoded to read only from in-memory maps, bypassing the connection pool entirely. Now it checks the in-memory cache first and falls back to the parent `Repository.findById()` which goes through the pool.
+
+### 🟢 Fixed: Connection pool waits on exhaustion instead of failing fast
+
+`acquire()` previously threw immediately when the pool was full. Now it queues the request and waits up to `acquireTimeoutMs` (default 5 s) for a connection to be released, preventing cascading failures from transient traffic spikes.
+
+### 🟢 Fixed: Pool close() drains wait queue
+
+`close()` now rejects all pending acquire waiters with "Pool is closed" before clearing connections, preventing hung promises.
+
+### 🟢 Fixed: Adapter.create() rolls back in-memory on DB failure
+
+The fire-and-forget DB write in `UserRepositoryAdapter.create()` silently swallowed errors. Now it rolls back in-memory state and logs the error if the async DB write fails.
+
 ### 🟡 Suggestion: Adapter bypasses async safety
 
 The `UserRepositoryAdapter` provides sync backwards compatibility by accessing internal Maps directly. While necessary for the migration, this creates a dual-write path where the in-memory state and DB state could diverge if the async `create()` fails silently.
