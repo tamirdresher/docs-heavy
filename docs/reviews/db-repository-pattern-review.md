@@ -120,8 +120,34 @@ Added tests for `Repository.update()`, `Repository.delete()`, and `Repository.co
 | Suite | Tests |
 |---|---|
 | Auth tests | 70 |
-| Repository tests | 49 |
-| **Total** | **119** |
+| Repository tests | 56 |
+| **Total** | **126** |
+
+## Follow-up Review (Round 3)
+
+### 🟢 Fixed: UnitOfWork.begin() leaked connection on beginTransaction failure
+
+If `beginTransaction()` threw after the connection was acquired, the connection was never released back to the pool — a resource leak. Now `begin()` wraps `beginTransaction()` in a try/catch that releases the connection on failure.
+
+### 🟢 Fixed: UserRepository cache invalidation on update/delete
+
+`UserRepository` maintains in-memory caches (`users`, `emailIndex`) for fast lookups. The base `Repository<T>.update()` and `delete()` methods were inherited without cache invalidation, so stale data would be served after mutations. Now both methods are overridden to keep caches in sync.
+
+### 🟢 Fixed: findByEmail() falls back to DB on cache miss
+
+Previously, `findByEmail()` only searched the in-memory `emailIndex`. In multi-instance deployments, users created on other instances were invisible. Now it falls back to a prepared-statement DB query on cache miss and populates the cache on hit.
+
+### 🟢 Fixed: withTransaction() preserves original error when rollback fails
+
+If the user callback threw and then `rollback()` also threw (e.g., connection already released), the rollback error would overwrite the original. Now the rollback error is swallowed and the original error is always rethrown.
+
+### 🟢 Fixed: Double initialize() no longer leaks reaper intervals
+
+Calling `initialize()` twice would start a second `setInterval` reaper without clearing the first, causing duplicate reaping and a resource leak. Now repeated calls are safe no-ops.
+
+### 🟢 Fixed: release() defers pool return when auto-rolling back
+
+Previously, `release()` returned the connection to the pool synchronously even when an auto-rollback was in progress. A waiting consumer could receive a mid-rollback connection. Now the pool return is deferred to the next microtick so the state cleanup completes first.
 
 ## Decision
 

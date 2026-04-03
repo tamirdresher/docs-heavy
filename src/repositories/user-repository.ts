@@ -120,12 +120,31 @@ export class UserRepository extends Repository<User> {
 
   /**
    * Find a user by email (prepared statement for performance).
+   * Checks in-memory cache first; falls back to DB via the pool
+   * so users created on other instances are still discoverable.
    */
   async findByEmail(email: string): Promise<User | undefined> {
     const normalizedEmail = email.toLowerCase().trim();
     const id = this.emailIndex.get(normalizedEmail);
-    if (!id) return undefined;
-    return this.users.get(id);
+    if (id) return this.users.get(id);
+
+    // Fall back to DB for cache misses (e.g., multi-instance deployments)
+    const conn = await this.pool.acquire();
+    try {
+      const rows = await conn.execute<Record<string, unknown>>(
+        'users_findByEmail',
+        'SELECT * FROM users WHERE email = $1',
+        [normalizedEmail],
+      );
+      if (rows.length === 0) return undefined;
+      const user = this.toEntity(rows[0]);
+      // Populate cache for subsequent lookups
+      this.users.set(user.id, user);
+      this.emailIndex.set(normalizedEmail, user.id);
+      return user;
+    } finally {
+      conn.release();
+    }
   }
 
   /**
@@ -148,6 +167,38 @@ export class UserRepository extends Repository<User> {
     const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].id : null;
 
     return { items, nextCursor, hasMore };
+  }
+
+  /**
+   * Update a user and invalidate the in-memory cache so stale
+   * data is never served after a mutation.
+   */
+  async update(id: string, changes: Partial<User>): Promise<User | undefined> {
+    const result = await super.update(id, changes);
+    if (result) {
+      // Refresh cache with the updated entity
+      const old = this.users.get(id);
+      if (old && changes.email) {
+        // Email changed — remove old email index entry
+        this.emailIndex.delete(old.email);
+        this.emailIndex.set(changes.email.toLowerCase().trim(), id);
+      }
+      this.users.set(id, result);
+    }
+    return result;
+  }
+
+  /**
+   * Delete a user and remove from in-memory cache.
+   */
+  async delete(id: string): Promise<boolean> {
+    const user = this.users.get(id);
+    const result = await super.delete(id);
+    if (user) {
+      this.users.delete(id);
+      this.emailIndex.delete(user.email);
+    }
+    return result;
   }
 
   /**
