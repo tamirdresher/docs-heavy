@@ -93,6 +93,8 @@ Authorization: Bearer <token>
 
 Valid statuses: `pending`, `confirmed`, `shipped`, `delivered`, `cancelled`.
 
+> **Note:** `totalAmount` is automatically calculated from items and cannot be set directly.
+
 ### Delete Order (Soft-delete)
 ```http
 DELETE /api/orders/:id
