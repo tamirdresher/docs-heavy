@@ -93,7 +93,7 @@ Authorization: Bearer <token>
 
 Valid statuses: `pending`, `confirmed`, `shipped`, `delivered`, `cancelled`.
 
-> **Note:** `totalAmount` is automatically calculated from items and cannot be set directly.
+> **Note:** `totalAmount` is automatically calculated from items (rounded to 2 decimal places) and cannot be set directly.
 
 ### Delete Order (Soft-delete)
 ```http
