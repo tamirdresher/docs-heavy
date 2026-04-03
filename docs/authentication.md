@@ -25,8 +25,14 @@ Create a new user account.
 
 **Request body:**
 ```json
-{ "email": "user@example.com", "password": "minimum8chars" }
+{ "email": "user@example.com", "password": "MySecure1" }
 ```
+
+Password requirements:
+- Minimum 8 characters
+- At least one uppercase letter
+- At least one lowercase letter
+- At least one digit
 
 **Response (201):**
 ```json
@@ -50,7 +56,8 @@ Authenticate with email and password.
 
 ### POST /api/auth/refresh
 
-Exchange a refresh token for a new token pair.
+Exchange a refresh token for a new token pair. The old refresh token is
+invalidated after use (refresh token rotation).
 
 **Request body:**
 ```json
@@ -59,7 +66,7 @@ Exchange a refresh token for a new token pair.
 
 ### POST /api/auth/logout
 
-Invalidate the current session. Returns 204.
+Blacklists the current access token so it can no longer be used. Returns 204.
 
 ## Error Format
 
@@ -81,6 +88,9 @@ Two roles are supported: `admin` and `user`. Protected routes can require specif
 ## Security Notes
 
 - Passwords are hashed with scrypt (memory-hard, resistant to GPU attacks).
+- Passwords must contain uppercase, lowercase, and digit characters.
 - JWT signatures use HMAC-SHA256 with timing-safe comparison.
 - Refresh tokens cannot be used as access tokens and vice versa.
+- Refresh token rotation: each refresh invalidates the previous token.
+- Logout blacklists the access token for its remaining lifetime.
 - Login errors use generic messages to prevent user enumeration.
