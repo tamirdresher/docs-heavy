@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-04-03T06:53:00Z",
+  "issue": "Review PR refactoring database layer",
+  "pr": 14,
+  "branch": "review/db-repository-pattern-review-2",
+  "observations": [
+    {
+      "type": "improvement",
+      "summary": "Added optional query logging to ConnectionPool for production debugging",
+      "detail": "New queryLogger callback on PoolOptions logs SQL, params, duration (ms), and connection ID for every query() and execute() call. Disabled by default — zero overhead when not set. Enables N+1 detection and slow query tracing in production without code changes.",
+      "confidence": "high"
+    },
+    {
+      "type": "testing",
+      "summary": "Added 9 new tests covering Repository CRUD, query logging, and pool edge cases",
+      "detail": "New tests: Repository.update (3: success, missing entity, maxSize=1), Repository.delete (1), Repository.count (1), query logging (4: query logging, prepared stmt logging, no-logger safety, param capture). All 119 total tests pass (70 auth + 49 repository).",
+      "confidence": "high"
+    },
+    {
+      "type": "improvement",
+      "summary": "Marked UserRepositoryAdapter as @deprecated with removal timeline",
+      "detail": "Added @deprecated JSDoc to UserRepositoryAdapter class and TODO comment with target removal in next major version. This makes the migration intent explicit in IDE tooling (strikethrough in VS Code) and searchable for cleanup.",
+      "confidence": "high"
+    },
+    {
+      "type": "architecture",
+      "summary": "Repository.update() acquires two pool connections sequentially — safe but suboptimal",
+      "detail": "update() calls this.findById() which acquires and releases a connection, then acquires a second connection for the UPDATE. Sequential acquisition avoids deadlock but doubles pool round-trips. Production optimization: combine into single UPDATE...RETURNING * statement. Confirmed safe at maxSize=1 via new test.",
+      "confidence": "high"
+    },
+    {
+      "type": "documentation",
+      "summary": "Updated review doc with round 2 findings, updated test counts",
+      "detail": "Added Follow-up Review section to docs/reviews/db-repository-pattern-review.md covering query logging, CRUD test coverage, adapter deprecation, and the update() double-acquire note. Updated test count table to 119 total.",
+      "confidence": "high"
+    },
+    {
+      "type": "suggestion",
+      "summary": "UserRepository.findByEmail() should fall back to DB like findById() does",
+      "detail": "findById() checks in-memory cache then falls back to super.findById() via the pool. findByEmail() only checks the in-memory emailIndex and never queries the database. In a multi-instance deployment, a user created on another instance would be invisible. Consider adding a DB fallback query for cache misses.",
+      "confidence": "medium"
+    }
+  ],
+  "verdict": "improvements_applied",
+  "tests": {
+    "total": 119,
+    "new": 9,
+    "passing": 119,
+    "failing": 0
+  }
+}
