@@ -46,7 +46,7 @@ export function requireRole(...allowedRoles: Array<'admin' | 'user'>) {
       res.status(403).json({
         error: {
           code: 'FORBIDDEN',
-          message: `Requires one of roles: ${allowedRoles.join(', ')}`,
+          message: 'Insufficient permissions',
         },
       });
       return;
