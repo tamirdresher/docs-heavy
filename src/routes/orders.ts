@@ -14,7 +14,7 @@
  */
 
 import type { JwtPayload } from '../auth/jwt.js';
-import type { OrderStore, OrderItem, OrderStatus } from '../models/order.js';
+import type { Order, OrderStore, OrderItem, OrderStatus } from '../models/order.js';
 
 export interface OrderRouteRequest {
   body: Record<string, unknown>;
@@ -44,7 +44,7 @@ function isValidOrderItem(item: unknown): item is OrderItem {
   const obj = item as Record<string, unknown>;
   if (typeof obj.productId !== 'string' || obj.productId.length === 0) return false;
   if (typeof obj.quantity !== 'number' || !Number.isInteger(obj.quantity) || obj.quantity < 1) return false;
-  if (typeof obj.unitPrice !== 'number' || obj.unitPrice < 0) return false;
+  if (typeof obj.unitPrice !== 'number' || !Number.isFinite(obj.unitPrice) || obj.unitPrice < 0) return false;
   return true;
 }
 
@@ -57,10 +57,10 @@ function isValidItemsArray(items: unknown): items is OrderItem[] {
 }
 
 /**
- * Check if the requesting user can modify this order.
- * Only the order owner or an admin can modify.
+ * Check if the requesting user can access (view or modify) this order.
+ * Only the order owner or an admin can access.
  */
-function canModifyOrder(user: JwtPayload, orderUserId: string): boolean {
+function canAccessOrder(user: JwtPayload, orderUserId: string): boolean {
   return user.role === 'admin' || user.sub === orderUserId;
 }
 
@@ -175,7 +175,7 @@ export function createOrderRoutes(deps: OrderDependencies) {
       return;
     }
 
-    if (!canModifyOrder(req.user, order.userId)) {
+    if (!canAccessOrder(req.user, order.userId)) {
       res.status(403).json({
         error: { code: 'FORBIDDEN', message: 'You do not have permission to view this order' },
       });
@@ -217,7 +217,7 @@ export function createOrderRoutes(deps: OrderDependencies) {
       return;
     }
 
-    if (!canModifyOrder(req.user, order.userId)) {
+    if (!canAccessOrder(req.user, order.userId)) {
       res.status(403).json({
         error: { code: 'FORBIDDEN', message: 'You do not have permission to modify this order' },
       });
@@ -258,11 +258,11 @@ export function createOrderRoutes(deps: OrderDependencies) {
       return;
     }
 
-    const changes: Record<string, unknown> = {};
-    if (items !== undefined) changes.items = items;
-    if (status !== undefined) changes.status = status;
+    const changes: Partial<Pick<Order, 'items' | 'status'>> = {};
+    if (items !== undefined) changes.items = items as OrderItem[];
+    if (status !== undefined) changes.status = status as OrderStatus;
 
-    const updated = orderStore.update(id, changes as any);
+    const updated = orderStore.update(id, changes);
 
     if (!updated) {
       res.status(404).json({
@@ -306,7 +306,7 @@ export function createOrderRoutes(deps: OrderDependencies) {
       return;
     }
 
-    if (!canModifyOrder(req.user, order.userId)) {
+    if (!canAccessOrder(req.user, order.userId)) {
       res.status(403).json({
         error: { code: 'FORBIDDEN', message: 'You do not have permission to delete this order' },
       });
