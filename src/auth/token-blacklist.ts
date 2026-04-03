@@ -13,6 +13,13 @@ export class TokenBlacklist {
   /** Map from token string → expiry timestamp (seconds since epoch). */
   private entries = new Map<string, number>();
 
+  /** Maximum number of entries before oldest are evicted. */
+  private readonly maxSize: number;
+
+  constructor(maxSize = 10_000) {
+    this.maxSize = maxSize;
+  }
+
   /**
    * Add a token to the blacklist.
    *
@@ -23,6 +30,16 @@ export class TokenBlacklist {
   add(token: string, expiresAt: number): void {
     this.entries.set(token, expiresAt);
     this.prune();
+
+    // Evict oldest entries if we exceed maxSize
+    if (this.entries.size > this.maxSize) {
+      const excess = this.entries.size - this.maxSize;
+      const iter = this.entries.keys();
+      for (let i = 0; i < excess; i++) {
+        const key = iter.next().value;
+        if (key !== undefined) this.entries.delete(key);
+      }
+    }
   }
 
   /**

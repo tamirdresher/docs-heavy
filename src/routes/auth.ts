@@ -114,16 +114,14 @@ export function createAuthRoutes(deps: AuthDependencies) {
     }
 
     const user = userStore.findByEmail(email);
-    if (!user) {
-      // Use generic message to prevent user enumeration
-      res.status(401).json({
-        error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' },
-      });
-      return;
-    }
 
-    const valid = await verifyPassword(password, user.passwordHash);
-    if (!valid) {
+    // Always run password verification to prevent timing-based user enumeration.
+    // When the user doesn't exist we verify against a dummy hash so the
+    // response time is indistinguishable from a real (but wrong) password.
+    const DUMMY_HASH = '$scrypt$N=16384$r=8$p=1$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const valid = await verifyPassword(password, user?.passwordHash ?? DUMMY_HASH);
+
+    if (!user || !valid) {
       res.status(401).json({
         error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' },
       });

@@ -90,7 +90,11 @@ Two roles are supported: `admin` and `user`. Protected routes can require specif
 - Passwords are hashed with scrypt (memory-hard, resistant to GPU attacks).
 - Passwords must contain uppercase, lowercase, and digit characters.
 - JWT signatures use HMAC-SHA256 with timing-safe comparison.
+- JWT verification enforces `alg: HS256` to prevent algorithm substitution attacks.
 - Refresh tokens cannot be used as access tokens and vice versa.
 - Refresh token rotation: each refresh invalidates the previous token.
 - Logout blacklists the access token for its remaining lifetime.
-- Login errors use generic messages to prevent user enumeration.
+- Login performs constant-time password verification even for unknown emails to prevent timing-based user enumeration.
+- Scrypt parameter bounds are validated on verification to prevent DoS via crafted hashes.
+- Token blacklist enforces a maximum size to prevent unbounded memory growth.
+- RBAC error messages do not reveal which roles are required.

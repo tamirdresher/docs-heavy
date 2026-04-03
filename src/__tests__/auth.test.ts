@@ -578,6 +578,88 @@ async function runTests() {
     assert(res.statusCode === 401, `Should return 401, got ${res.statusCode}`);
   });
 
+  // ───── Security hardening tests ─────
+
+  console.log('\nSecurity hardening tests:');
+
+  await test('verify: rejects token with alg=none header', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    // Craft a token with alg: "none"
+    const noneHeader = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }), 'utf8')
+      .toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const payload = Buffer.from(JSON.stringify({
+      sub: 'attacker', role: 'admin', iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 3600, type: 'access',
+    }), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const fakeToken = `${noneHeader}.${payload}.fakesig`;
+    const result = await mgr.verify(fakeToken);
+    assert(result === null, 'Should reject token with alg=none');
+  });
+
+  await test('verify: rejects token with alg=HS384 header', async () => {
+    const mgr = createJwtManager({ secret: TEST_SECRET });
+    const wrongAlgHeader = Buffer.from(JSON.stringify({ alg: 'HS384', typ: 'JWT' }), 'utf8')
+      .toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const payload = Buffer.from(JSON.stringify({
+      sub: 'attacker', role: 'admin', iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 3600, type: 'access',
+    }), 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const fakeToken = `${wrongAlgHeader}.${payload}.fakesig`;
+    const result = await mgr.verify(fakeToken);
+    assert(result === null, 'Should reject token with wrong algorithm');
+  });
+
+  await test('verifyPassword: rejects hash with extreme scrypt cost', async () => {
+    // Craft a hash with N=2^30 which would cause DoS
+    const dangerousHash = '$scrypt$N=1073741824$r=8$p=1$AAAA$AAAA';
+    const result = await verifyPassword('test', dangerousHash);
+    assert(result === false, 'Should reject hash with extreme cost parameter');
+  });
+
+  await test('TokenBlacklist: respects max size limit', () => {
+    const bl = new TokenBlacklist(5);
+    const futureExp = Math.floor(Date.now() / 1000) + 3600;
+    for (let i = 0; i < 10; i++) {
+      bl.add(`token-${i}`, futureExp);
+    }
+    assert(bl.size <= 5, `Size should not exceed max (5), got ${bl.size}`);
+  });
+
+  await test('login: returns same error for unknown email as wrong password', async () => {
+    userStore.clear();
+    tokenBlacklist.clear();
+    await routes.register(
+      { body: { email: 'timing@test.com', password: 'Password123' }, headers: {} } as any,
+      mockRes(),
+    );
+
+    // Wrong password for existing user
+    const res1 = mockRes();
+    await routes.login({ body: { email: 'timing@test.com', password: 'WrongPass1' }, headers: {} } as any, res1);
+
+    // Non-existent user
+    const res2 = mockRes();
+    await routes.login({ body: { email: 'nouser@test.com', password: 'Password123' }, headers: {} } as any, res2);
+
+    assert(res1.statusCode === res2.statusCode, 'Status codes should match');
+    const body1 = (res1.body as any).error;
+    const body2 = (res2.body as any).error;
+    assert(body1.code === body2.code, 'Error codes should match');
+    assert(body1.message === body2.message, 'Error messages should match');
+  });
+
+  await test('requireRole: does not leak role names in error', () => {
+    const mw = requireRole('admin');
+    const req: AuthRequest = {
+      headers: {},
+      user: { sub: 'u1', role: 'user', iat: 0, exp: 999999999, type: 'access' },
+    };
+    const res = mockRes();
+    mw(req, res, () => {});
+    const msg = (res.body as any).error.message;
+    assert(!msg.includes('admin'), `Error message should not contain role names, got: ${msg}`);
+  });
+
   console.log('\nAll auth tests passed!');
 }
 

@@ -84,7 +84,7 @@ export function authMiddleware(jwtManager: JwtVerifier, blacklist?: TokenBlackli
 
     // Only accept access tokens (not refresh tokens)
     if (payload.type !== 'access') {
-      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid token type' } });
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } });
       return;
     }
 

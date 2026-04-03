@@ -128,6 +128,15 @@ export function createJwtManager(options: JwtOptions) {
     if (parts.length !== 3) return null;
 
     const [headerPart, payloadPart, signaturePart] = parts;
+
+    // Validate the algorithm in the header to prevent algorithm substitution attacks
+    try {
+      const decodedHeader = JSON.parse(base64urlDecode(headerPart));
+      if (decodedHeader.alg !== 'HS256') return null;
+    } catch {
+      return null;
+    }
+
     const expectedSig = await hmacSign(`${headerPart}.${payloadPart}`, secret);
 
     const valid = await timingSafeEqual(signaturePart, expectedSig);
