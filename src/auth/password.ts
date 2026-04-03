@@ -89,6 +89,12 @@ export async function verifyPassword(password: string, storedHash: string): Prom
   const cost = parseInt(parts[1].replace('N=', ''), 10);
   const blockSize = parseInt(parts[2].replace('r=', ''), 10);
   const parallelism = parseInt(parts[3].replace('p=', ''), 10);
+
+  // Bounds-check scrypt parameters to prevent DoS via crafted hashes
+  if (!Number.isFinite(cost) || cost < 2 || cost > 2 ** 24) return false;
+  if (!Number.isFinite(blockSize) || blockSize < 1 || blockSize > 256) return false;
+  if (!Number.isFinite(parallelism) || parallelism < 1 || parallelism > 16) return false;
+
   const salt = Buffer.from(parts[4], 'base64');
   const expectedHash = Buffer.from(parts[5], 'base64');
   const keyLength = expectedHash.length;

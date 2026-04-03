@@ -1,0 +1,35 @@
+{
+  "session": "jwt-auth-review-improvements",
+  "timestamp": "2026-04-03T01:50:00Z",
+  "issue": "Review PR adding authentication",
+  "observations": [
+    {
+      "type": "architecture",
+      "detail": "Added TokenBlacklist class (src/auth/token-blacklist.ts) using an in-memory Map<token, expiresAt> with automatic pruning of expired entries. In production this should be replaced by a Redis set with TTL. The blacklist integrates into auth middleware as an optional parameter to avoid breaking existing callers."
+    },
+    {
+      "type": "decision",
+      "detail": "Implemented refresh token rotation: the refresh endpoint blacklists the old refresh token before issuing a new pair. This limits a stolen refresh token to single use. The blacklist is shared between the routes and middleware layers via dependency injection."
+    },
+    {
+      "type": "decision",
+      "detail": "Strengthened password validation to require uppercase + lowercase + digit in addition to the 8-char minimum. Used simple regex checks (/[A-Z]/, /[a-z]/, /[0-9]/) rather than a library like zxcvbn to keep the implementation lightweight and dependency-free."
+    },
+    {
+      "type": "learning",
+      "detail": "Replaced Math.random()-based hex ID generation in UserStore with crypto.randomUUID(). The global crypto object is available in Node.js ≥ 19 and all modern runtimes without importing node:crypto. This avoids the ESM dynamic import pattern used elsewhere in the codebase."
+    },
+    {
+      "type": "context",
+      "detail": "The auth middleware's blacklist parameter is optional (TokenBlacklistChecker | undefined) so the middleware remains backward-compatible with callers that don't need blacklisting. Existing tests that don't pass a blacklist continue to work unchanged."
+    },
+    {
+      "type": "gotcha",
+      "detail": "When updating password complexity requirements, all test passwords must be updated to satisfy the new rules. Tests that previously used 'password123' (no uppercase) needed to change to 'Password123'. The password-without-uppercase and password-without-digit test cases verify the new validation explicitly."
+    },
+    {
+      "type": "verification",
+      "detail": "All 47 tests pass (up from 40). New tests cover: password without uppercase rejected, password without digit rejected, refresh token rotation (reuse rejected), TokenBlacklist add/has, TokenBlacklist expired entry pruning, and auth middleware blacklisted token rejection. PR #7 opened against feature/jwt-authentication."
+    }
+  ]
+}

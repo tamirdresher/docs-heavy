@@ -19,6 +19,8 @@ import type { JwtPayload } from '../auth/jwt.js';
 export interface AuthRequest {
   headers: Record<string, string | undefined>;
   user?: JwtPayload;
+  /** Raw Bearer token string, set by auth middleware for downstream use (e.g. logout blacklisting). */
+  token?: string;
   [key: string]: unknown;
 }
 
@@ -33,6 +35,10 @@ export interface JwtVerifier {
   verify(token: string): Promise<JwtPayload | null>;
 }
 
+export interface TokenBlacklistChecker {
+  has(token: string): boolean;
+}
+
 /**
  * Create authentication middleware that validates JWT bearer tokens.
  *
@@ -41,8 +47,9 @@ export interface JwtVerifier {
  *  - Token format is invalid
  *  - Token is expired or has an invalid signature
  *  - Token is not an access token (type !== 'access')
+ *  - Token has been blacklisted (e.g. after logout)
  */
-export function authMiddleware(jwtManager: JwtVerifier) {
+export function authMiddleware(jwtManager: JwtVerifier, blacklist?: TokenBlacklistChecker) {
   return async function authenticate(
     req: AuthRequest,
     res: AuthResponse,
@@ -63,6 +70,13 @@ export function authMiddleware(jwtManager: JwtVerifier) {
     }
 
     const token = parts[1];
+
+    // Reject blacklisted tokens (logged-out sessions)
+    if (blacklist?.has(token)) {
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Token has been revoked' } });
+      return;
+    }
+
     const payload = await jwtManager.verify(token);
 
     if (!payload) {
@@ -72,11 +86,12 @@ export function authMiddleware(jwtManager: JwtVerifier) {
 
     // Only accept access tokens (not refresh tokens)
     if (payload.type !== 'access') {
-      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid token type' } });
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired token' } });
       return;
     }
 
     req.user = payload;
+    req.token = token;
     next();
   };
 }
