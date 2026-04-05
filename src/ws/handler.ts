@@ -11,6 +11,8 @@ interface Client {
 
 const clients = new Map<string, Client>();
 const channels = new EventEmitter();
+// Channels legitimately hold one listener per client per channel subscription
+channels.setMaxListeners(0);
 
 let clientIdCounter = 0;
 
@@ -53,7 +55,11 @@ export function handleConnection(ws: WebSocket, req: IncomingMessage): void {
     cleanup();
   }
 
+  let cleaned = false;
   function cleanup(): void {
+    if (cleaned) return;
+    cleaned = true;
+
     // Remove all event listeners added for this connection
     ws.removeListener('message', onMessage);
     ws.removeListener('close', onClose);

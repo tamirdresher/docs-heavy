@@ -9,6 +9,8 @@
     "dev": "echo \"Dev server would start here\""
   },
   "devDependencies": {
-    "tsx": "^4.21.0"
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.21.0",
+    "ws": "^8.20.0"
   }
 }
