@@ -1,0 +1,23 @@
+{
+  "session": "webhook-retry-verification",
+  "timestamp": "2026-04-02T14:04:50Z",
+  "issue": "Implement webhook retry with exponential backoff",
+  "observations": [
+    {
+      "type": "verification",
+      "detail": "All 31 tests pass on the feature/webhook-retry-exponential-backoff branch. Tests cover: calculateBackoff math (7 tests), isRetryableStatus boundaries (5 tests), delivery scenarios (first-attempt success, 5xx retry, network error retry, DLQ on exhausted retries, persistent network errors), status tracking, payload shape, custom config, config validation errors, and full 5-retry backoff sequence."
+    },
+    {
+      "type": "infrastructure",
+      "detail": "PR #1 is open: feature/webhook-retry-exponential-backoff → master in tamirdresher/docs-heavy. Branch has 4 commits on top of master. Tests run via 'npm test' which invokes 'npx tsx src/__tests__/webhook-retry.test.ts'."
+    },
+    {
+      "type": "pattern",
+      "detail": "This repo is docs-heavy with extensive markdown in docs/ (API references, guides, tutorials, FAQ, changelog). Feature code lives in src/middleware/ with tests in src/__tests__/. The master branch has no src/ directory — it only exists on feature branches."
+    },
+    {
+      "type": "convention",
+      "detail": "Tests use a custom lightweight harness (test/assert functions) with tsx runner — no framework like Jest or Vitest. TestableDeliveryManager subclass overrides protected sleep() to avoid real delays and capture backoff durations."
+    }
+  ]
+}

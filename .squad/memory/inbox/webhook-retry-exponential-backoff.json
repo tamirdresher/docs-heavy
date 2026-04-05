@@ -1,0 +1,35 @@
+{
+  "session": "webhook-retry-exponential-backoff",
+  "timestamp": "2026-04-02T13:59:00Z",
+  "issue": "Implement webhook retry with exponential backoff",
+  "observations": [
+    {
+      "type": "pattern",
+      "detail": "Tests use a lightweight custom harness (test/assert functions with tsx runner). TestableDeliveryManager subclass overrides the protected sleep() method to skip real delays and capture backoff durations for assertions. Reuse this subclass-override pattern for testing any async code with delays."
+    },
+    {
+      "type": "architecture",
+      "detail": "Webhook retry module lives at src/middleware/webhook-retry.ts. Exports WebhookDeliveryManager class, calculateBackoff/isRetryableStatus helpers, and TypeScript interfaces (WebhookDelivery, WebhookRetryOptions, DeliveryPayload, DeliveryResult, DeliverRequest). The deliverFn is constructor-injected for testability."
+    },
+    {
+      "type": "convention",
+      "detail": "ESM imports use .js extensions (e.g., import from '../middleware/webhook-retry.js'). This matches existing project conventions and is enforced by type: module in package.json."
+    },
+    {
+      "type": "decision",
+      "detail": "Exponential backoff uses base-2 with no jitter: delay = baseDelayMs * 2^attempt. Non-5xx responses (including 4xx) are treated as successful delivery to avoid retrying client errors. maxRetries=0 means a single attempt with no retries."
+    },
+    {
+      "type": "gotcha",
+      "detail": "The package.json test script runs only webhook-retry tests. On the master branch, src/ directory does not exist — it only exists on feature branches. When merging multiple feature branches, the test script needs to aggregate all test files."
+    },
+    {
+      "type": "infrastructure",
+      "detail": "Remote origin configured at https://github.com/tamirdresher/docs-heavy.git. PR #1 opened: feature/webhook-retry-exponential-backoff → master. All 31 tests pass (verified 2026-04-02). gh CLI auth uses keyring-stored token for tamirdresher account."
+    },
+    {
+      "type": "test-coverage",
+      "detail": "31 tests cover: calculateBackoff math, isRetryableStatus boundaries, first-attempt success, 5xx retry with backoff verification, network error retry, dead-letter queue on exhausted retries, status transitions (pending→retrying→delivered/failed), payload shape validation, custom config (maxRetries, baseDelayMs), and config validation errors."
+    }
+  ]
+}
