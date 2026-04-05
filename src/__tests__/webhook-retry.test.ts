@@ -21,7 +21,7 @@ import {
   type DeliveryPayload,
   type DeliveryResult,
   type WebhookDelivery,
-} from '../middleware/webhook-retry.js';
+} from '../webhooks/webhook-retry.js';
 
 // ── test helpers ────────────────────────────────────────────────────────
 
@@ -542,6 +542,40 @@ async function runTests() {
     }
 
     assert(manager.getDeadLetterQueue().length === 1, 'Should be in DLQ');
+  });
+
+  // ── lastError cleared on eventual success ──────────────────────────
+
+  await test('lastError is cleared after eventual successful retry', async () => {
+    let callCount = 0;
+    const manager = new TestableDeliveryManager({
+      maxRetries: 3,
+      baseDelayMs: 1000,
+      deliverFn: async () => {
+        callCount++;
+        if (callCount <= 2) return { statusCode: 503 };
+        return { statusCode: 200 };
+      },
+    });
+
+    const result = await manager.deliver({
+      url: 'https://example.com/hook',
+      event: 'test',
+      payload: {},
+      webhookId: 'wh_clear_err',
+    });
+
+    assert(result.status === 'delivered', `Expected delivered, got ${result.status}`);
+    assert(result.attempts === 3, `Expected 3 attempts, got ${result.attempts}`);
+    assert(result.lastError === null, `lastError should be null after success, got '${result.lastError}'`);
+  });
+
+  // ── calculateBackoff rejects fractional attempt ───────────────────
+
+  await test('calculateBackoff: throws on fractional attempt', () => {
+    let threw = false;
+    try { calculateBackoff(1.5, 1000); } catch { threw = true; }
+    assert(threw, 'Should throw on fractional attempt');
   });
 
   console.log('\nAll webhook retry tests passed!');

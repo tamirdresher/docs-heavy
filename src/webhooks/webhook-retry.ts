@@ -86,8 +86,8 @@ export interface DeliverRequest {
  * Example with baseDelayMs=1000: 1s, 2s, 4s, 8s, 16s
  */
 export function calculateBackoff(attempt: number, baseDelayMs: number): number {
-  if (attempt < 0 || !Number.isFinite(attempt)) {
-    throw new Error('attempt must be a non-negative finite number');
+  if (attempt < 0 || !Number.isFinite(attempt) || !Number.isInteger(attempt)) {
+    throw new Error('attempt must be a non-negative integer');
   }
   if (baseDelayMs <= 0 || !Number.isFinite(baseDelayMs)) {
     throw new Error('baseDelayMs must be a positive finite number');
@@ -223,6 +223,7 @@ export class WebhookDeliveryManager {
           delivery.status = 'delivered';
           delivery.deliveredAt = new Date();
           delivery.nextRetryAt = null;
+          delivery.lastError = null;
           return delivery;
         }
 
