@@ -121,7 +121,7 @@ function handleClientMessage(
       break;
 
     case 'broadcast':
-      if (message.channel && message.data) {
+      if (message.channel && message.data !== undefined) {
         channels.emit(message.channel, message.data);
       }
       break;

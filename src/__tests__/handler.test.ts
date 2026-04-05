@@ -182,4 +182,72 @@ test('Unsubscribe removes channel listener', () => {
   assert(channels.listenerCount('chat') === 0, 'Listener removed after unsubscribe');
 });
 
+test('Error-only (without close) cleans up fully', () => {
+  resetState();
+  const ws = new MockWebSocket();
+  handleConnection(ws as any, fakeReq);
+
+  ws.emit('message', JSON.stringify({ action: 'subscribe', channel: 'err-only' }));
+
+  ws.emit('error', new Error('socket hang up'));
+
+  assert(ws.listenerCount('message') === 0, 'message listener removed');
+  assert(ws.listenerCount('close') === 0, 'close listener removed');
+  assert(ws.listenerCount('error') === 0, 'error listener removed');
+  assert(channels.listenerCount('err-only') === 0, 'Channel listener removed');
+  assert(clients.size === 0, 'Client removed');
+});
+
+test('Multiple channels per client are all cleaned on disconnect', () => {
+  resetState();
+  const ws = new MockWebSocket();
+  handleConnection(ws as any, fakeReq);
+
+  ws.emit('message', JSON.stringify({ action: 'subscribe', channel: 'ch-a' }));
+  ws.emit('message', JSON.stringify({ action: 'subscribe', channel: 'ch-b' }));
+  ws.emit('message', JSON.stringify({ action: 'subscribe', channel: 'ch-c' }));
+
+  assert(channels.listenerCount('ch-a') === 1, 'ch-a subscribed');
+  assert(channels.listenerCount('ch-b') === 1, 'ch-b subscribed');
+  assert(channels.listenerCount('ch-c') === 1, 'ch-c subscribed');
+
+  ws.emit('close');
+
+  assert(channels.listenerCount('ch-a') === 0, 'ch-a cleaned');
+  assert(channels.listenerCount('ch-b') === 0, 'ch-b cleaned');
+  assert(channels.listenerCount('ch-c') === 0, 'ch-c cleaned');
+  assert(clients.size === 0, 'Client removed');
+});
+
+test('Broadcast with falsy payload (0, false, empty string) still emits', () => {
+  resetState();
+  const ws = new MockWebSocket();
+  handleConnection(ws as any, fakeReq);
+
+  // Subscribe to receive broadcasts
+  ws.emit('message', JSON.stringify({ action: 'subscribe', channel: 'falsy' }));
+  const initialSentCount = ws.sent.length;
+
+  // Broadcast falsy values — they should still be delivered
+  ws.emit('message', JSON.stringify({ action: 'broadcast', channel: 'falsy', data: 0 }));
+  ws.emit('message', JSON.stringify({ action: 'broadcast', channel: 'falsy', data: false }));
+  ws.emit('message', JSON.stringify({ action: 'broadcast', channel: 'falsy', data: '' }));
+
+  const newMessages = ws.sent.slice(initialSentCount);
+  assert(newMessages.length === 3, `Expected 3 broadcast messages, got ${newMessages.length}`);
+});
+
+test('Malformed JSON does not leak listeners or crash', () => {
+  resetState();
+  const ws = new MockWebSocket();
+  handleConnection(ws as any, fakeReq);
+
+  ws.emit('message', 'not valid json {{{');
+
+  assert(clients.size === 1, 'Client still connected');
+  assert(ws.listenerCount('message') === 1, 'Listeners intact');
+  const lastMsg = JSON.parse(ws.sent[ws.sent.length - 1]);
+  assert(lastMsg.error === 'Invalid JSON', 'Error response sent');
+});
+
 console.log('\nAll tests passed!');
